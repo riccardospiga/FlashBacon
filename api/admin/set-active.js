@@ -1,14 +1,14 @@
 // api/admin/set-active.js — attiva un provider e disattiva tutti gli altri
-// Vercel Serverless Function
+// Vercel Serverless Function (ESM)
 
-const { createClient } = require('@supabase/supabase-js')
+import { createClient } from '@supabase/supabase-js'
 
 const supabase = createClient(
   process.env.VITE_SUPABASE_URL,
   process.env.VITE_SUPABASE_ANON_KEY
 )
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   try {

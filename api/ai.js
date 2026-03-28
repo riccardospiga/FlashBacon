@@ -1,8 +1,8 @@
 // api/ai.js — FlashBacon multi-provider AI router
-// Vercel Serverless Function
+// Vercel Serverless Function (ESM)
 
-const { createClient } = require('@supabase/supabase-js')
-const crypto = require('crypto')
+import { createClient } from '@supabase/supabase-js'
+import crypto from 'crypto'
 
 const ALGO   = 'aes-256-gcm'
 const SECRET = Buffer.from(process.env.ENCRYPTION_SECRET, 'hex')
@@ -131,7 +131,7 @@ async function callDeepSeek(apiKey, model, prompt) {
 }
 
 // ── MAIN HANDLER ──
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   try {

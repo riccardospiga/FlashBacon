@@ -70,12 +70,12 @@ const GLOBAL_CSS = `
   .home-body { flex:1; background:var(--gray); border-radius:28px 28px 0 0; padding:24px 20px; margin-top:4px; display:flex; flex-direction:column; gap:16px; overflow-y:auto; }
   .section-title { font-family:'Syne',sans-serif; font-weight:800; font-size:1.25rem; color:var(--ink); margin-bottom:4px; }
   .materia-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
-  .materia-card { background:var(--white); border-radius:20px; padding:20px 16px; cursor:pointer; box-shadow:0 4px 24px rgba(0,0,0,.1); transition:transform .15s, box-shadow .15s; display:flex; flex-direction:column; gap:8px; }
-  .materia-card:hover { transform:translateY(-2px); box-shadow:0 8px 40px rgba(0,0,0,.18); }
+  .materia-card { background:var(--white); border-radius:20px; padding:18px 16px; cursor:pointer; box-shadow:0 4px 24px rgba(0,0,0,.08); transition:transform .15s, box-shadow .15s; display:flex; flex-direction:column; gap:10px; }
+  .materia-card:hover { transform:translateY(-2px); box-shadow:0 8px 32px rgba(0,0,0,.14); }
   .materia-card:active { transform:scale(.97); }
   .materia-emoji { font-size:2rem; }
-  .materia-name { font-family:'Syne',sans-serif; font-weight:700; font-size:.95rem; color:var(--ink); }
-  .materia-count { font-size:.78rem; color:var(--muted); font-weight:500; }
+  .materia-name { font-family:'Syne',sans-serif; font-weight:700; font-size:.95rem; color:var(--ink); line-height:1.3; }
+  .materia-count { font-size:.75rem; color:var(--muted); font-weight:500; }
   .add-card { background:rgba(196,40,28,.07); border:2px dashed rgba(196,40,28,.25); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; min-height:120px; }
   .add-card span { font-size:1.6rem; color:var(--red); }
   .add-card p { font-size:.82rem; color:var(--red); font-weight:600; }
@@ -460,7 +460,26 @@ export default function App() {
       const u = data || { id: user.id, nome: user.email.split('@')[0], email: user.email, is_admin: false }
       setUtente(u)
       await loadMaterie(u.email)
-      setScreen('home')
+
+      // Restore last nav position if returning from another tab
+      const savedScreen    = sessionStorage.getItem('fb_screen')
+      const savedMateriaId = sessionStorage.getItem('fb_materia')
+      const savedArgId     = sessionStorage.getItem('fb_argomento')
+
+      if (savedScreen === 'argomento' && savedMateriaId && savedArgId) {
+        setCurrentMateriaId(savedMateriaId)
+        setCurrentArgomentoId(savedArgId)
+        await loadArgomenti(savedMateriaId)
+        await loadFonti(savedArgId)
+        await loadStorico(savedArgId)
+        setScreen('argomento')
+      } else if (savedScreen === 'argomenti' && savedMateriaId) {
+        setCurrentMateriaId(savedMateriaId)
+        await loadArgomenti(savedMateriaId)
+        setScreen('argomenti')
+      } else {
+        setScreen('home')
+      }
     } catch {
       const u = { id: user.id, nome: user.email.split('@')[0], email: user.email, is_admin: false }
       setUtente(u)
@@ -552,12 +571,21 @@ export default function App() {
   }
 
   /* ── FONTI ── */
-  async function handleUpload(files) {
+  async function handleUpload(files, mode = 'image') {
+    const isImage = (file) => file.type.startsWith('image/')
     for (const file of Array.from(files)) {
       try {
-        const blob      = await compressImage(file)
-        const path      = `${utente.id}/${currentArgomentoId}/${Date.now()}_${file.name}`
-        const { error: upErr } = await supabase.storage.from('fonti').upload(path, blob, { contentType: 'image/jpeg' })
+        const path = `${utente.id}/${currentArgomentoId}/${Date.now()}_${file.name}`
+        let uploadBlob = file
+        let contentType = file.type || 'application/octet-stream'
+
+        if (isImage(file)) {
+          // compress images
+          uploadBlob = await compressImage(file)
+          contentType = 'image/jpeg'
+        }
+
+        const { error: upErr } = await supabase.storage.from('fonti').upload(path, uploadBlob, { contentType })
         if (upErr) { showToast('Errore upload: ' + upErr.message); continue }
         const { data: { publicUrl } } = supabase.storage.from('fonti').getPublicUrl(path)
         const { data: row } = await supabase.from('fonti').insert({
@@ -565,6 +593,7 @@ export default function App() {
           argomento_id: currentArgomentoId, nome: file.name, url: publicUrl
         }).select().single()
         if (row) setFonti(prev => [...prev, row])
+        showToast(`${file.name} caricato ✓`)
       } catch (e) { showToast('Errore: ' + e.message) }
     }
   }
@@ -832,6 +861,15 @@ Studente: ${msg}`
   const activeProvider   = providers.find(p => p.attivo)
   const argFonti         = fonti.filter(f => f.argomento_id === currentArgomentoId)
 
+  // Persist nav state so back/forward tab doesn't reset position
+  useEffect(() => {
+    if (screen && screen !== 'loading' && screen !== 'login') {
+      sessionStorage.setItem('fb_screen', screen)
+      if (currentMateriaId)   sessionStorage.setItem('fb_materia',   currentMateriaId)
+      if (currentArgomentoId) sessionStorage.setItem('fb_argomento', currentArgomentoId)
+    }
+  }, [screen, currentMateriaId, currentArgomentoId])
+
   return (
     <>
       {/* ─── LOADING ─── */}
@@ -893,7 +931,7 @@ Studente: ${msg}`
             <div className="materia-grid">
               {materie.map(m => (
                 <div key={m.id} className="materia-card" onClick={() => { setCurrentMateriaId(m.id); loadArgomenti(m.id); setScreen('argomenti') }}>
-                  <div className="materia-emoji">{m.emoji}</div>
+                  <SubjectIcon emoji={m.emoji} />
                   <div className="materia-name">{m.nome}</div>
                   <div className="materia-count">{argomenti.filter(a => a.materia_id === m.id).length} argomenti</div>
                 </div>
@@ -976,18 +1014,29 @@ Studente: ${msg}`
             {argTab === 'fonti' && (
               <>
                 <div className="upload-btn-group">
-                  <label className="btn-upload">🖼️ Galleria<input type="file" multiple accept="image/*" style={{ display: 'none' }} onChange={e => handleUpload(e.target.files)} /></label>
-                  <label className="btn-upload">📷 Fotocamera<input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => handleUpload(e.target.files)} /></label>
-                  <label className="btn-upload">📎 File<input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => handleUpload(e.target.files)} /></label>
+                  <label className="btn-upload">🖼️ Galleria<input type="file" multiple accept="image/*" style={{ display: 'none' }} onChange={e => handleUpload(e.target.files, 'image')} /></label>
+                  <label className="btn-upload">📷 Fotocamera<input type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={e => handleUpload(e.target.files, 'image')} /></label>
+                  <label className="btn-upload">📎 File<input type="file" multiple accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.csv,image/*" style={{ display: 'none' }} onChange={e => handleUpload(e.target.files, 'file')} /></label>
                 </div>
                 <div className="fonti-grid">
                   {argFonti.length === 0 && <div className="empty-state" style={{ width: '100%' }}><span>📂</span><p>Nessuna fonte caricata</p></div>}
-                  {argFonti.map(f => (
-                    <div key={f.id} className="fonte-thumb">
-                      <img src={f.url} alt={f.nome} />
-                      <button className="fonte-del" onClick={() => deleteFonte(f)}>✕</button>
-                    </div>
-                  ))}
+                  {argFonti.map(f => {
+                    const isImg = /\.(jpg|jpeg|png|gif|webp)$/i.test(f.nome) || f.url?.includes('image')
+                    const ext = f.nome.split('.').pop()?.toLowerCase() || ''
+                    const docIcon = { pdf:'📄', doc:'📝', docx:'📝', ppt:'📊', pptx:'📊', xls:'📈', xlsx:'📈', txt:'📃', csv:'📃' }[ext] || '📎'
+                    return (
+                      <div key={f.id} className="fonte-thumb" style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background: isImg ? undefined : '#f0f4ff', gap: 4 }}>
+                        {isImg
+                          ? <img src={f.url} alt={f.nome} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                          : <>
+                              <span style={{ fontSize:'2rem' }}>{docIcon}</span>
+                              <span style={{ fontSize:'.6rem', color:'var(--muted)', textAlign:'center', padding:'0 4px', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'100%' }}>{f.nome}</span>
+                            </>
+                        }
+                        <button className="fonte-del" onClick={() => deleteFonte(f)}>✕</button>
+                      </div>
+                    )
+                  })}
                 </div>
               </>
             )}
@@ -1291,6 +1340,50 @@ Studente: ${msg}`
   )
 
   function goProfilo() { setScreen('profilo') }
+}
+
+/* ═══════════════════════════════════════════════
+   SUBJECT ICON — quality SVG icons per materia
+═══════════════════════════════════════════════ */
+const SUBJECT_ICONS = {
+  '📚': { bg:'#EEF2FF', fg:'#4F46E5', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><path d="M8 7h8M8 11h8M8 15h5"/></svg> },
+  '🔬': { bg:'#F0FDF4', fg:'#16A34A', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 3h6l1 7H8L9 3z"/><path d="M8 10l-4 9h16l-4-9"/><path d="M12 3v4"/><circle cx="12" cy="17" r="1"/></svg> },
+  '🧮': { bg:'#FFF7ED', fg:'#EA580C', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 8h.01M12 8h.01M16 8h.01M8 12h.01M12 12h.01M16 12h.01M8 16h.01M12 16h.01M16 16h.01"/></svg> },
+  '🌍': { bg:'#F0F9FF', fg:'#0284C7', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3.6 9h16.8M3.6 15h16.8"/><path d="M12 3a14 14 0 010 18M12 3a14 14 0 000 18"/></svg> },
+  '🎨': { bg:'#FDF4FF', fg:'#A21CAF', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="9" cy="10" r="1.5" fill="currentColor"/><circle cx="15" cy="10" r="1.5" fill="currentColor"/><circle cx="12" cy="15" r="1.5" fill="currentColor"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2"/></svg> },
+  '📖': { bg:'#FFF1F2', fg:'#E11D48', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg> },
+  '🧬': { bg:'#F0FDF4', fg:'#15803D', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 3c0 9 14 6 14 15M5 21c0-9 14-6 14-15"/><path d="M5 8h14M5 16h14"/></svg> },
+  '⚗️': { bg:'#FFFBEB', fg:'#D97706', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 3h6M10 3v7L4 19a2 2 0 001.8 2.9h12.4A2 2 0 0020 19l-6-9V3"/><path d="M7.5 14h9"/></svg> },
+  '🏛️': { bg:'#F8FAFC', fg:'#475569', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M3 21h18M3 10h18M5 10V21M8 10V21M11 10V21M14 10V21M17 10V21M19 10V21M12 3L3 10h18L12 3z"/></svg> },
+  '🎵': { bg:'#FDF4FF', fg:'#9333EA', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> },
+  '🖥️': { bg:'#EFF6FF', fg:'#2563EB', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg> },
+  '🌿': { bg:'#F0FDF4', fg:'#16A34A', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 8C8 10 5.9 16.17 3.82 19.34L2 22"/><path d="M17 8C17 8 22 12 22 17C22 19 20 21 18 21C15 21 12 18 12 15C12 12 15 9 17 8Z"/></svg> },
+  '📐': { bg:'#FFF7ED', fg:'#C2410C', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3L3 21h18L12 3z"/><path d="M12 3v18M3 21l9-9"/></svg> },
+  '🔭': { bg:'#EFF6FF', fg:'#1D4ED8', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12h20M12 2l-5 10 5 10"/><circle cx="19" cy="12" r="3"/></svg> },
+  '🧠': { bg:'#FDF4FF', fg:'#7C3AED', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5C8 5 5 8 5 11c0 2 1 3.5 2.5 4.5V19h9v-3.5C18 14.5 19 13 19 11c0-3-3-6-7-6z"/><path d="M9 19v2M15 19v2M9 11c0-1.5 1.5-3 3-3"/></svg> },
+  '💡': { bg:'#FEFCE8', fg:'#CA8A04', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21h6M12 3a6 6 0 016 6c0 2.2-1.2 4.1-3 5.2V17H9v-2.8A6 6 0 0112 3z"/></svg> },
+  '⚙️': { bg:'#F1F5F9', fg:'#475569', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg> },
+  '🌊': { bg:'#EFF6FF', fg:'#0369A1', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 12c1.5-2 3-2 4.5 0s3 2 4.5 0 3-2 4.5 0 3 2 4.5 0"/><path d="M2 17c1.5-2 3-2 4.5 0s3 2 4.5 0 3-2 4.5 0 3 2 4.5 0"/><path d="M2 7c1.5-2 3-2 4.5 0s3 2 4.5 0 3-2 4.5 0 3 2 4.5 0"/></svg> },
+  '🦅': { bg:'#FFF7ED', fg:'#B45309', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2 8c4 0 6 2 10 2s6-2 10-2"/><path d="M12 10v10M8 16l4 4 4-4"/></svg> },
+  '🏆': { bg:'#FEFCE8', fg:'#B45309', svg: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9H3V4h3M18 9h3V4h-3"/><path d="M6 4h12v7a6 6 0 01-12 0V4z"/><path d="M9 21h6M12 17v4"/><path d="M8 21h8"/></svg> },
+}
+
+function SubjectIcon({ emoji, size = 52 }) {
+  const def = SUBJECT_ICONS[emoji] || SUBJECT_ICONS['📚']
+  return (
+    <div style={{
+      width: size, height: size,
+      background: def.bg,
+      borderRadius: 16,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      flexShrink: 0,
+      boxShadow: `0 2px 8px ${def.fg}22`,
+    }}>
+      <div style={{ width: size * 0.55, height: size * 0.55, color: def.fg }}>
+        {def.svg}
+      </div>
+    </div>
+  )
 }
 
 /* ═══════════════════════════════════════════════

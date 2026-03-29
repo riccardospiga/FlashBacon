@@ -1,4 +1,10 @@
 // api/ai.js — FlashBacon multi-provider AI router (ESM)
+// Ottimizzato per Vercel Free (10s timeout):
+// - Gemini: URL diretti (fileData) — nessun download lato server
+// - Anthropic: base64 solo se necessario, con limite 1 file
+// - OpenAI/Mistral: URL diretti per immagini
+// - DeepSeek: solo testo
+
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 
@@ -13,114 +19,136 @@ function decrypt(api_key_encrypted, iv, auth_tag) {
 }
 
 async function getActiveProvider() {
-  const { data, error } = await supabase.from('ai_providers').select('*').eq('attivo', true).single()
+  const { data, error } = await supabase
+    .from('ai_providers').select('*').eq('attivo', true).single()
   if (error || !data) throw new Error('Nessun provider AI attivo. Configura un provider nel pannello Admin.')
   return data
 }
 
-async function urlToBase64(url) {
+const isPdf   = url => /\.pdf($|\?)|application%2Fpdf/i.test(url)
+const isImage = url => /\.(jpg|jpeg|png|gif|webp)($|\?)/i.test(url)
+
+// Scarica UN solo file come base64 (usato solo da Anthropic come fallback)
+async function singleUrlToBase64(url) {
   const res = await fetch(url)
-  if (!res.ok) throw new Error(`Impossibile scaricare: ${url}`)
+  if (!res.ok) throw new Error(`Download fallito: ${res.status}`)
   const buf  = await res.arrayBuffer()
   const b64  = Buffer.from(buf).toString('base64')
-  const mime = res.headers.get('content-type') || 'image/jpeg'
-  return { b64, mime }
+  const ct   = res.headers.get('content-type') || 'image/jpeg'
+  return { b64, mime: ct.split(';')[0].trim() }
 }
 
-const isPdf   = url => /\.pdf|application%2Fpdf/i.test(url)
-const isImage = url => /\.(jpg|jpeg|png|gif|webp)/i.test(url)
-
-async function callAnthropic(apiKey, model, prompt, imageUrls) {
-  const content = []
-  for (const url of imageUrls) {
-    try {
-      const { b64, mime } = await urlToBase64(url)
-      const mediaType = (isPdf(url) || mime==='application/pdf') ? 'application/pdf' : mime
-      const type = mediaType==='application/pdf' ? 'document' : 'image'
-      content.push({ type, source:{ type:'base64', media_type:mediaType, data:b64 } })
-    } catch(e) { console.warn('File saltato:', e.message) }
-  }
-  content.push({ type:'text', text:prompt })
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method:'POST',
-    headers:{ 'Content-Type':'application/json', 'x-api-key':apiKey, 'anthropic-version':'2023-06-01' },
-    body: JSON.stringify({ model, max_tokens:4096, messages:[{ role:'user', content }] }),
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
-  return data.content?.[0]?.text || ''
-}
-
-async function callOpenAI(apiKey, model, prompt, imageUrls) {
-  const content = []
-  for (const url of imageUrls) {
-    if (isImage(url)) content.push({ type:'image_url', image_url:{ url, detail:'high' } })
-  }
-  content.push({ type:'text', text:prompt })
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method:'POST',
-    headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${apiKey}` },
-    body: JSON.stringify({ model, messages:[{ role:'user', content }], max_tokens:4096 }),
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
-  return data.choices?.[0]?.message?.content || ''
-}
-
+// ── GEMINI: usa fileData con URL pubblici — zero download lato server ──
 async function callGemini(apiKey, model, prompt, imageUrls) {
   const parts = []
+
   for (const url of imageUrls) {
-    try {
-      const { b64, mime } = await urlToBase64(url)
-      const mimeType = (isPdf(url) || mime==='application/pdf') ? 'application/pdf' : mime
-      parts.push({ inline_data:{ mime_type:mimeType, data:b64 } })
-    } catch(e) { console.warn('File saltato:', e.message) }
+    // Gemini fileData accetta URL pubblici direttamente
+    const mimeType = isPdf(url) ? 'application/pdf'
+      : isImage(url)            ? 'image/jpeg'
+      : null
+    if (!mimeType) continue
+    parts.push({ file_data: { mime_type: mimeType, file_uri: url } })
   }
-  parts.push({ text:prompt })
+
+  parts.push({ text: prompt })
+
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
   const res = await fetch(apiUrl, {
-    method:'POST', headers:{ 'Content-Type':'application/json' },
-    body: JSON.stringify({ contents:[{ parts }] }),
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents: [{ parts }] }),
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
   return data.candidates?.[0]?.content?.parts?.[0]?.text || ''
 }
 
+// ── ANTHROPIC: base64 ma solo max 2 file per evitare timeout ──
+async function callAnthropic(apiKey, model, prompt, imageUrls) {
+  const content = []
+  const limited = imageUrls.slice(0, 2) // max 2 file per stare nei 10s
+
+  for (const url of limited) {
+    try {
+      const { b64, mime } = await singleUrlToBase64(url)
+      if (isPdf(url) || mime === 'application/pdf') {
+        content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } })
+      } else {
+        content.push({ type: 'image', source: { type: 'base64', media_type: mime, data: b64 } })
+      }
+    } catch(e) { console.warn('File saltato:', e.message) }
+  }
+  content.push({ type: 'text', text: prompt })
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: 'user', content }] }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
+  return data.content?.[0]?.text || ''
+}
+
+// ── OPENAI: URL diretti per immagini ──
+async function callOpenAI(apiKey, model, prompt, imageUrls) {
+  const content = []
+  for (const url of imageUrls) {
+    if (isImage(url)) content.push({ type: 'image_url', image_url: { url, detail: 'high' } })
+  }
+  content.push({ type: 'text', text: prompt })
+
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    body: JSON.stringify({ model, messages: [{ role: 'user', content }], max_tokens: 4096 }),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
+  return data.choices?.[0]?.message?.content || ''
+}
+
+// ── MISTRAL: URL diretti per immagini ──
 async function callMistral(apiKey, model, prompt, imageUrls) {
   const content = []
   for (const url of imageUrls) {
-    if (isImage(url)) content.push({ type:'image_url', image_url:url })
+    if (isImage(url)) content.push({ type: 'image_url', image_url: url })
   }
-  content.push({ type:'text', text:prompt })
+  content.push({ type: 'text', text: prompt })
+
   const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
-    method:'POST',
-    headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${apiKey}` },
-    body: JSON.stringify({ model, messages:[{ role:'user', content }], max_tokens:4096 }),
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    body: JSON.stringify({ model, messages: [{ role: 'user', content }], max_tokens: 4096 }),
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
   return data.choices?.[0]?.message?.content || ''
 }
 
+// ── DEEPSEEK: solo testo ──
 async function callDeepSeek(apiKey, model, prompt) {
   const res = await fetch('https://api.deepseek.com/chat/completions', {
-    method:'POST',
-    headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${apiKey}` },
-    body: JSON.stringify({ model, messages:[{ role:'user', content:prompt }], max_tokens:4096 }),
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], max_tokens: 4096 }),
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
   return data.choices?.[0]?.message?.content || ''
 }
 
+// ── MAIN HANDLER ──
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error:'Method not allowed' })
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
   try {
     const { prompt, images = [] } = req.body
-    if (!prompt) return res.status(400).json({ error:'Prompt mancante' })
+    if (!prompt) return res.status(400).json({ error: 'Prompt mancante' })
+
     const prov   = await getActiveProvider()
     const apiKey = decrypt(prov.api_key_encrypted, prov.iv, prov.auth_tag)
+
     let result = ''
     switch (prov.provider) {
       case 'anthropic': result = await callAnthropic(apiKey, prov.modello, prompt, images); break
@@ -130,9 +158,10 @@ export default async function handler(req, res) {
       case 'deepseek':  result = await callDeepSeek(apiKey, prov.modello, prompt);          break
       default: throw new Error(`Provider sconosciuto: ${prov.provider}`)
     }
+
     res.status(200).json({ result })
   } catch(e) {
     console.error('[ai.js]', e.message)
-    res.status(500).json({ error:e.message })
+    res.status(500).json({ error: e.message })
   }
 }

@@ -1,16 +1,10 @@
-// api/ai.js — FlashBacon multi-provider AI router
-// Vercel Serverless Function (ESM)
-
+// api/ai.js — FlashBacon multi-provider AI router (ESM)
 import { createClient } from '@supabase/supabase-js'
 import crypto from 'crypto'
 
 const ALGO   = 'aes-256-gcm'
 const SECRET = Buffer.from(process.env.ENCRYPTION_SECRET, 'hex')
-
-const supabase = createClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.VITE_SUPABASE_ANON_KEY
-)
+const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.VITE_SUPABASE_ANON_KEY)
 
 function decrypt(api_key_encrypted, iv, auth_tag) {
   const decipher = crypto.createDecipheriv(ALGO, SECRET, Buffer.from(iv, 'base64'))
@@ -19,99 +13,90 @@ function decrypt(api_key_encrypted, iv, auth_tag) {
 }
 
 async function getActiveProvider() {
-  const { data, error } = await supabase
-    .from('ai_providers')
-    .select('*')
-    .eq('attivo', true)
-    .single()
+  const { data, error } = await supabase.from('ai_providers').select('*').eq('attivo', true).single()
   if (error || !data) throw new Error('Nessun provider AI attivo. Configura un provider nel pannello Admin.')
   return data
 }
 
-// ── IMAGE FETCH: URL → base64 ──
 async function urlToBase64(url) {
   const res = await fetch(url)
-  if (!res.ok) throw new Error(`Impossibile scaricare immagine: ${url}`)
+  if (!res.ok) throw new Error(`Impossibile scaricare: ${url}`)
   const buf  = await res.arrayBuffer()
   const b64  = Buffer.from(buf).toString('base64')
   const mime = res.headers.get('content-type') || 'image/jpeg'
   return { b64, mime }
 }
 
-// ── PROVIDER CALLS ──
-async function callAnthropic(apiKey, model, prompt, images) {
-  const content = []
-  for (const imgUrl of images) {
-    try {
-      const { b64, mime } = await urlToBase64(imgUrl)
-      content.push({ type: 'image', source: { type: 'base64', media_type: mime, data: b64 } })
-    } catch (e) { console.warn('Immagine saltata:', e.message) }
-  }
-  content.push({ type: 'text', text: prompt })
+const isPdf   = url => /\.pdf|application%2Fpdf/i.test(url)
+const isImage = url => /\.(jpg|jpeg|png|gif|webp)/i.test(url)
 
+async function callAnthropic(apiKey, model, prompt, imageUrls) {
+  const content = []
+  for (const url of imageUrls) {
+    try {
+      const { b64, mime } = await urlToBase64(url)
+      const mediaType = (isPdf(url) || mime==='application/pdf') ? 'application/pdf' : mime
+      const type = mediaType==='application/pdf' ? 'document' : 'image'
+      content.push({ type, source:{ type:'base64', media_type:mediaType, data:b64 } })
+    } catch(e) { console.warn('File saltato:', e.message) }
+  }
+  content.push({ type:'text', text:prompt })
   const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: 'user', content }] }),
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', 'x-api-key':apiKey, 'anthropic-version':'2023-06-01' },
+    body: JSON.stringify({ model, max_tokens:4096, messages:[{ role:'user', content }] }),
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
   return data.content?.[0]?.text || ''
 }
 
-async function callOpenAI(apiKey, model, prompt, images) {
+async function callOpenAI(apiKey, model, prompt, imageUrls) {
   const content = []
-  for (const imgUrl of images) {
-    content.push({ type: 'image_url', image_url: { url: imgUrl, detail: 'high' } })
+  for (const url of imageUrls) {
+    if (isImage(url)) content.push({ type:'image_url', image_url:{ url, detail:'high' } })
   }
-  content.push({ type: 'text', text: prompt })
-
+  content.push({ type:'text', text:prompt })
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, messages: [{ role: 'user', content }], max_tokens: 4096 }),
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${apiKey}` },
+    body: JSON.stringify({ model, messages:[{ role:'user', content }], max_tokens:4096 }),
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
   return data.choices?.[0]?.message?.content || ''
 }
 
-async function callGemini(apiKey, model, prompt, images) {
+async function callGemini(apiKey, model, prompt, imageUrls) {
   const parts = []
-  for (const imgUrl of images) {
+  for (const url of imageUrls) {
     try {
-      const { b64, mime } = await urlToBase64(imgUrl)
-      parts.push({ inline_data: { mime_type: mime, data: b64 } })
-    } catch (e) { console.warn('Immagine saltata:', e.message) }
+      const { b64, mime } = await urlToBase64(url)
+      const mimeType = (isPdf(url) || mime==='application/pdf') ? 'application/pdf' : mime
+      parts.push({ inline_data:{ mime_type:mimeType, data:b64 } })
+    } catch(e) { console.warn('File saltato:', e.message) }
   }
-  parts.push({ text: prompt })
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts }] }),
+  parts.push({ text:prompt })
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+  const res = await fetch(apiUrl, {
+    method:'POST', headers:{ 'Content-Type':'application/json' },
+    body: JSON.stringify({ contents:[{ parts }] }),
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
   return data.candidates?.[0]?.content?.parts?.[0]?.text || ''
 }
 
-async function callMistral(apiKey, model, prompt, images) {
+async function callMistral(apiKey, model, prompt, imageUrls) {
   const content = []
-  for (const imgUrl of images) {
-    content.push({ type: 'image_url', image_url: imgUrl })
+  for (const url of imageUrls) {
+    if (isImage(url)) content.push({ type:'image_url', image_url:url })
   }
-  content.push({ type: 'text', text: prompt })
-
+  content.push({ type:'text', text:prompt })
   const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, messages: [{ role: 'user', content }], max_tokens: 4096 }),
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${apiKey}` },
+    body: JSON.stringify({ model, messages:[{ role:'user', content }], max_tokens:4096 }),
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
@@ -119,28 +104,23 @@ async function callMistral(apiKey, model, prompt, images) {
 }
 
 async function callDeepSeek(apiKey, model, prompt) {
-  // DeepSeek: testo only
   const res = await fetch('https://api.deepseek.com/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, messages: [{ role: 'user', content: prompt }], max_tokens: 4096 }),
+    method:'POST',
+    headers:{ 'Content-Type':'application/json', 'Authorization':`Bearer ${apiKey}` },
+    body: JSON.stringify({ model, messages:[{ role:'user', content:prompt }], max_tokens:4096 }),
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
   return data.choices?.[0]?.message?.content || ''
 }
 
-// ── MAIN HANDLER ──
 export default async function handler(req, res) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
-
+  if (req.method !== 'POST') return res.status(405).json({ error:'Method not allowed' })
   try {
     const { prompt, images = [] } = req.body
-    if (!prompt) return res.status(400).json({ error: 'Prompt mancante' })
-
+    if (!prompt) return res.status(400).json({ error:'Prompt mancante' })
     const prov   = await getActiveProvider()
     const apiKey = decrypt(prov.api_key_encrypted, prov.iv, prov.auth_tag)
-
     let result = ''
     switch (prov.provider) {
       case 'anthropic': result = await callAnthropic(apiKey, prov.modello, prompt, images); break
@@ -150,10 +130,9 @@ export default async function handler(req, res) {
       case 'deepseek':  result = await callDeepSeek(apiKey, prov.modello, prompt);          break
       default: throw new Error(`Provider sconosciuto: ${prov.provider}`)
     }
-
     res.status(200).json({ result })
-  } catch (e) {
-    console.error('[ai.js]', e)
-    res.status(500).json({ error: e.message })
+  } catch(e) {
+    console.error('[ai.js]', e.message)
+    res.status(500).json({ error:e.message })
   }
 }

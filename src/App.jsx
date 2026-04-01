@@ -707,15 +707,24 @@ export default function App(){
   async function uploadFile(file){
     try{
       const ext=getExt(file.name)
-      const path=`${utente.id}/${curArgId}/${Date.now()}_${file.name}`
+      const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_')
+      const path=`${utente.id}/${curArgId}/${Date.now()}_${safeName}`
       let blob=file,ct=file.type||'application/octet-stream'
       if(isImgExt(ext)){blob=await compressImg(file);ct='image/jpeg'}
       const{error:ue}=await supabase.storage.from('fonti').upload(path,blob,{contentType:ct})
-      if(ue){toast('Errore upload: '+ue.message);return}
+      if(ue){toast('Errore storage: '+ue.message);console.error('storage',ue);return}
       const{data:{publicUrl}}=supabase.storage.from('fonti').getPublicUrl(path)
-      const{data:row}=await supabase.from('fonti').insert({utente_email:utente.email,materia_id:curMateriaId,argomento_id:curArgId,nome:file.name,url:publicUrl,tipo:'file'}).select().single()
-      if(row)setFonti(p=>[...p,row]);toast(file.name+' caricato ✓')
-    }catch(e){toast('Errore: '+e.message)}
+      const{data:row,error:ie}=await supabase.from('fonti').insert({
+        utente_email:utente.email,
+        materia_id:curMateriaId,
+        argomento_id:curArgId,
+        nome:file.name,
+        url:publicUrl,
+        tipo:'file'
+      }).select().single()
+      if(ie){toast('Errore DB: '+ie.message);console.error('insert',ie);return}
+      if(row){setFonti(p=>[...p,row]);toast('Caricato: '+file.name)}
+    }catch(e){toast('Errore: '+e.message);console.error(e)}
   }
   async function addTextFonte(){
     if(!textFonteVal.trim())return

@@ -1,4 +1,4 @@
-// api/ai.js — FlashBacon v4 (CommonJS)
+// api/ai.js — FlashBacon v5 (CommonJS)
 const { createClient } = require('@supabase/supabase-js')
 const crypto = require('crypto')
 
@@ -43,10 +43,8 @@ async function fetchUrlText(url) {
   }
 }
 
-function buildSystemPrompt(extraText, settings) {
-  const length = (['breve e concisa', 'di media lunghezza', 'lunga e dettagliata'])[(settings.length || 2) - 1]
-  const depth  = (['semplice, senza tecnicismi', 'con approfondimento moderato', 'molto approfondita e tecnica'])[(settings.depth || 2) - 1]
-  return `Sei FlashBacon AI, un assistente di studio. Rispondi ESCLUSIVAMENTE in base al contenuto delle fonti fornite. NON usare conoscenze esterne a meno che l'utente non lo chieda esplicitamente. Rispondi sempre in italiano. La risposta deve essere ${length} e ${depth}.${extraText ? '\n\nFonti testuali aggiuntive:\n' + extraText : ''}`
+function buildLengthDesc(length) {
+  return (['breve e concisa', 'di media lunghezza', 'lunga e dettagliata'])[( length || 2) - 1]
 }
 
 async function callGemini(apiKey, model, prompt, imageUrls, systemPrompt) {
@@ -131,15 +129,22 @@ async function callDeepSeek(apiKey, model, prompt, systemPrompt) {
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
   try {
-    const { prompt, images = [], textSources = [], urlSources = [], settings = {} } = req.body
+    const { prompt, images = [], textSources = [], urlSources = [], settings = {}, systemContext = '', fileNames = '' } = req.body
     if (!prompt) return res.status(400).json({ error: 'Prompt mancante' })
 
+    // Fetch URL sources as text
     const urlTexts = await Promise.all(urlSources.map(fetchUrlText))
     const extraText = [...textSources, ...urlTexts].filter(Boolean).join('\n\n---\n\n')
 
-    const prov      = await getActiveProvider()
-    const apiKey    = decrypt(prov.api_key_encrypted, prov.iv, prov.auth_tag)
-    const sysPrompt = buildSystemPrompt(extraText, settings)
+    // Build system prompt
+    const lengthDesc = buildLengthDesc(settings.length)
+    let sysPrompt = systemContext || 'Sei FlashBacon AI, un assistente di studio. Rispondi in italiano.'
+    sysPrompt += ` La risposta deve essere ${lengthDesc}.`
+    if (fileNames) sysPrompt += ` Le fonti disponibili sono: ${fileNames}.`
+    if (extraText) sysPrompt += `\n\nContenuto testuale delle fonti:\n${extraText}`
+
+    const prov   = await getActiveProvider()
+    const apiKey = decrypt(prov.api_key_encrypted, prov.iv, prov.auth_tag)
 
     let result = ''
     switch (prov.provider) {

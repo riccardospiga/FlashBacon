@@ -1586,4 +1586,4 @@ function QuizQ({q,idx,total,answered,setAnswered,onNext,onCorrect}){
   )
 }
 
-function cleanText(t){return(t||'').replace(/\*\*/g,'').replace(/^\*+|\*+$/gm,'').replace(/^#+\s*/gm,'').trim()}
+

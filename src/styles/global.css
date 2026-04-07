@@ -1233,6 +1233,66 @@ body {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px;
 }
 
+/* Card remove button */
+.up-card-remove {
+  background: none; border: none; color: var(--muted);
+  cursor: pointer; font-size: .82rem; padding: 4px 6px;
+  border-radius: 6px; flex-shrink: 0; transition: color .15s, background .15s;
+  display: flex; align-items: center; justify-content: center;
+}
+.up-card-remove:hover { color: #F87171; background: rgba(248,113,113,.1); }
+
+/* Arg row with inline remove */
+.up-arg-row { display: flex; align-items: center; gap: 4px; }
+.up-arg-remove {
+  background: none; border: none; color: var(--muted);
+  cursor: pointer; font-size: .72rem; padding: 3px 5px;
+  border-radius: 4px; flex-shrink: 0; transition: color .15s;
+}
+.up-arg-remove:hover { color: #F87171; }
+
+/* Add arg button */
+.up-add-arg-btn {
+  background: rgba(108,99,255,.08); border: 1.5px dashed rgba(108,99,255,.25);
+  border-radius: 8px; padding: 4px 10px;
+  font-size: .75rem; font-weight: 600; color: var(--primary-lt);
+  cursor: pointer; transition: all .15s; font-family: 'DM Sans', sans-serif;
+}
+.up-add-arg-btn:hover { background: rgba(108,99,255,.18); border-color: var(--primary-lt); }
+
+/* Merge controls */
+.up-merge-wrap { position: relative; }
+.up-merge-btn {
+  background: none; border: 1.5px solid var(--border-md);
+  border-radius: 9px; padding: 5px 12px;
+  font-size: .78rem; font-weight: 600; color: var(--muted);
+  cursor: pointer; transition: all .15s; font-family: 'DM Sans', sans-serif;
+}
+.up-merge-btn:hover, .up-merge-btn.active { border-color: var(--primary-lt); color: var(--primary-lt); }
+.up-merge-picker {
+  position: absolute; bottom: calc(100% + 6px); left: 0; z-index: 10;
+  background: var(--surface-3); border: 1px solid var(--border-str);
+  border-radius: 12px; padding: 6px; min-width: 180px;
+  display: flex; flex-direction: column; gap: 2px;
+  box-shadow: 0 4px 20px rgba(0,0,0,.4); animation: fadeIn .15s ease;
+}
+.up-merge-option {
+  background: none; border: none; border-radius: 8px;
+  padding: 8px 12px; text-align: left; font-size: .85rem;
+  font-weight: 600; color: var(--ink); cursor: pointer;
+  transition: background .15s; font-family: 'DM Sans', sans-serif;
+}
+.up-merge-option:hover { background: rgba(108,99,255,.18); }
+
+/* Convert esistente → nuova */
+.up-convert-btn {
+  background: none; border: 1.5px dashed rgba(108,99,255,.25);
+  border-radius: 10px; padding: 7px 12px; width: 100%; text-align: center;
+  font-size: .8rem; font-weight: 600; color: var(--primary-lt);
+  cursor: pointer; transition: all .15s; font-family: 'DM Sans', sans-serif;
+}
+.up-convert-btn:hover { background: rgba(108,99,255,.08); border-color: var(--primary-lt); }
+
 /* ═══ MEDIA QUERIES ═══ */
 @media (max-width: 380px) {
   .materia-grid, .tools-grid { grid-template-columns: 1fr; }

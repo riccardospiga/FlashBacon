@@ -49,6 +49,7 @@ export default function UploadAIModal({ onClose, materie, utente, onComplete, di
   const [proposal, setProposal]     = useState(null)       // editProposal
   const [saving, setSaving]         = useState(false)
   const [err, setErr]               = useState('')
+  const [mergePickerFor, setMergePickerFor] = useState(null)
   const fileRef = useRef()
 
   /* ── Add items ── */
@@ -129,13 +130,21 @@ export default function UploadAIModal({ onClose, materie, utente, onComplete, di
         ? materie.map(m => `- "${m.nome}" id:${m.id}`).join('\n')
         : '(nessuna materia esistente)'
 
-      const prompt = `Sei un assistente di studio. Analizza i materiali e proponi una struttura.
+      const prompt = `Sei un assistente di studio. Analizza i materiali caricati e proponi una struttura di studio sintetica.
 
 Materie già esistenti:
 ${existingList}
 
 Materiali caricati (indice e nome):
 ${fileList}
+
+REGOLE FONDAMENTALI (rispettale rigorosamente):
+1. Massimo 1 materia per upload, salvo contenuti CHIARAMENTE distinti per disciplina (es. matematica + storia insieme).
+2. Massimo 3-4 argomenti per materia, solo se davvero distinti tematicamente — NON dividere per paragrafi o sezioni del documento.
+3. Se il contenuto è omogeneo → 1 materia, 1 solo argomento.
+4. Preferisci argomenti ampi e descrittivi (es. "Termodinamica" non "Legge di Boyle" e "Legge di Charles" separati).
+5. Ragiona prima sul titolo e tema generale del documento, poi sul contenuto dettagliato.
+6. Usa una materia esistente quando il tema corrisponde chiaramente.
 
 Rispondi SOLO con JSON valido, nessun testo prima o dopo:
 {
@@ -147,7 +156,7 @@ Rispondi SOLO con JSON valido, nessun testo prima o dopo:
   ]
 }
 
-Regole: raggruppa file correlati, usa materie esistenti quando pertinente, ogni materia ≥1 argomento, emoji appropriate, item_indices = indici dei materiali caricati.`
+item_indices = indici dei materiali caricati sopra. emoji appropriate alla materia.`
 
       const res = await fetch('/api/ai', {
         method: 'POST',
@@ -273,6 +282,59 @@ Regole: raggruppa file correlati, usa materie esistenti quando pertinente, ogni 
     }))
   }
 
+  /* ── Rimuovi / aggiungi / unisci ── */
+  function removeNuova(i) {
+    setProposal(p => ({ ...p, nuove: p.nuove.filter((_, j) => j !== i) }))
+    if (mergePickerFor === i) setMergePickerFor(null)
+  }
+  function removeNuovaArg(i, ai) {
+    setProposal(p => ({
+      ...p,
+      nuove: p.nuove.map((m, j) => j !== i ? m : { ...m, argomenti: m.argomenti.filter((_, k) => k !== ai) })
+    }))
+  }
+  function addNuovaArg(i) {
+    setProposal(p => ({
+      ...p,
+      nuove: p.nuove.map((m, j) => j !== i ? m : { ...m, argomenti: [...m.argomenti, ''] })
+    }))
+  }
+  function mergeNuovaInto(srcI, tgtI) {
+    setProposal(p => {
+      const src = p.nuove[srcI], tgt = p.nuove[tgtI]
+      const merged = {
+        ...tgt,
+        argomenti: [...tgt.argomenti, ...src.argomenti],
+        item_indices: [...(tgt.item_indices || []), ...(src.item_indices || [])]
+      }
+      return { ...p, nuove: p.nuove.map((m, j) => j === tgtI ? merged : m).filter((_, j) => j !== srcI) }
+    })
+    setMergePickerFor(null)
+  }
+  function removeEsistente(i) {
+    setProposal(p => ({ ...p, esistenti: p.esistenti.filter((_, j) => j !== i) }))
+  }
+  function removeEsistenteArg(i, ai) {
+    setProposal(p => ({
+      ...p,
+      esistenti: p.esistenti.map((m, j) => j !== i ? m : { ...m, argomenti: m.argomenti.filter((_, k) => k !== ai) })
+    }))
+  }
+  function convertToNuova(i) {
+    const add = proposal.esistenti[i]
+    const mat = materie.find(m => m.id === add.materia_id)
+    setProposal(p => ({
+      nuove: [...p.nuove, {
+        nome: add.materia_nome,
+        emoji: mat?.emoji || '📚',
+        argomenti: [...add.argomenti],
+        item_indices: [...(add.item_indices || [])],
+        _id: 'new-' + Date.now()
+      }],
+      esistenti: p.esistenti.filter((_, j) => j !== i)
+    }))
+  }
+
   /* ════════════════════ RENDER ════════════════════ */
   return (
     <div className="up-modal-ov" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -390,7 +452,7 @@ Regole: raggruppa file correlati, usa materie esistenti quando pertinente, ogni 
         {step === 'confirm' && proposal && (
           <div className="up-body">
             <p style={{fontSize:'.82rem',color:'var(--muted)',lineHeight:1.6}}>
-              Rivedi la struttura proposta dall'AI. Puoi rinominare materie e argomenti prima di salvare.
+              Rivedi la struttura proposta. Puoi rinominare, rimuovere, unire materie e argomenti.
             </p>
 
             {/* Nuove materie */}
@@ -405,18 +467,24 @@ Regole: raggruppa file correlati, usa materie esistenti quando pertinente, ogni 
                       value={mat.nome}
                       onChange={e => updateNuovaNome(i, e.target.value)}
                     />
+                    <button className="up-card-remove" onClick={() => removeNuova(i)} title="Rimuovi materia">✕</button>
                   </div>
+
                   <div className="up-prop-args">
                     <span className="up-prop-args-label">Argomenti:</span>
                     {mat.argomenti?.map((arg, ai) => (
-                      <input
-                        key={ai}
-                        className="up-arg-input"
-                        value={arg}
-                        onChange={e => updateNuovaArg(i, ai, e.target.value)}
-                      />
+                      <div key={ai} className="up-arg-row">
+                        <input
+                          className="up-arg-input"
+                          value={arg}
+                          onChange={e => updateNuovaArg(i, ai, e.target.value)}
+                        />
+                        <button className="up-arg-remove" onClick={() => removeNuovaArg(i, ai)}>✕</button>
+                      </div>
                     ))}
+                    <button className="up-add-arg-btn" onClick={() => addNuovaArg(i)}>+ arg</button>
                   </div>
+
                   {mat.item_indices?.length > 0 && (
                     <div className="up-prop-files">
                       {mat.item_indices.map(idx => items[idx] && (
@@ -424,6 +492,26 @@ Regole: raggruppa file correlati, usa materie esistenti quando pertinente, ogni 
                           {items[idx].type === 'text' ? '✏️' : items[idx].type === 'url' ? '🔗' : '📄'} {items[idx].name}
                         </span>
                       ))}
+                    </div>
+                  )}
+
+                  {proposal.nuove.length > 1 && (
+                    <div className="up-merge-wrap">
+                      <button
+                        className={`up-merge-btn${mergePickerFor === i ? ' active' : ''}`}
+                        onClick={() => setMergePickerFor(mergePickerFor === i ? null : i)}
+                      >
+                        ⤵ Unisci a...
+                      </button>
+                      {mergePickerFor === i && (
+                        <div className="up-merge-picker">
+                          {proposal.nuove.map((tgt, j) => j === i ? null : (
+                            <button key={j} className="up-merge-option" onClick={() => mergeNuovaInto(i, j)}>
+                              {tgt.emoji} {tgt.nome}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -441,16 +529,19 @@ Regole: raggruppa file correlati, usa materie esistenti quando pertinente, ogni 
                       <span className="up-prop-emoji">{mat?.emoji || '📚'}</span>
                       <span className="up-prop-existing-name">{add.materia_nome}</span>
                       <span className="up-existing-badge">Esistente</span>
+                      <button className="up-card-remove" onClick={() => removeEsistente(i)} title="Rimuovi">✕</button>
                     </div>
                     <div className="up-prop-args">
                       <span className="up-prop-args-label">Nuovi argomenti:</span>
                       {add.argomenti?.map((arg, ai) => (
-                        <input
-                          key={ai}
-                          className="up-arg-input"
-                          value={arg}
-                          onChange={e => updateEsistenteArg(i, ai, e.target.value)}
-                        />
+                        <div key={ai} className="up-arg-row">
+                          <input
+                            className="up-arg-input"
+                            value={arg}
+                            onChange={e => updateEsistenteArg(i, ai, e.target.value)}
+                          />
+                          <button className="up-arg-remove" onClick={() => removeEsistenteArg(i, ai)}>✕</button>
+                        </div>
                       ))}
                     </div>
                     {add.item_indices?.length > 0 && (
@@ -462,6 +553,9 @@ Regole: raggruppa file correlati, usa materie esistenti quando pertinente, ogni 
                         ))}
                       </div>
                     )}
+                    <button className="up-convert-btn" onClick={() => convertToNuova(i)}>
+                      + Crea come nuova materia separata
+                    </button>
                   </div>
                 )
               })}

@@ -203,8 +203,10 @@ item_indices = indici dei materiali caricati sopra. emoji appropriate alla mater
           if (newArg && !firstArgId) firstArgId = newArg.id
         }
         if (firstArgId) {
+          // Più argomenti creati dallo stesso upload → fonti condivise (argomento_id = null)
+          const uploadArgId = mat.argomenti?.length > 1 ? null : firstArgId
           for (const idx of (mat.item_indices || [])) {
-            if (items[idx]) await uploadItem(items[idx], newMat.id, firstArgId)
+            if (items[idx]) await uploadItem(items[idx], newMat.id, uploadArgId)
           }
         }
       }
@@ -220,8 +222,9 @@ item_indices = indici dei materiali caricati sopra. emoji appropriate alla mater
           if (newArg && !firstArgId) firstArgId = newArg.id
         }
         if (firstArgId) {
+          const uploadArgId = add.argomenti?.length > 1 ? null : firstArgId
           for (const idx of (add.item_indices || [])) {
-            if (items[idx]) await uploadItem(items[idx], mat.id, firstArgId)
+            if (items[idx]) await uploadItem(items[idx], mat.id, uploadArgId)
           }
         }
       }
@@ -240,7 +243,7 @@ item_indices = indici dei materiali caricati sopra. emoji appropriate alla mater
       const safeName = item.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       let blob = item.file, ct = item.file.type || 'application/octet-stream'
       if (isImgExt(ext)) { blob = await compressImg(item.file); ct = 'image/jpeg' }
-      const path = `${utente.id}/${argomentoId}/${Date.now()}_${safeName}`
+      const path = `${utente.id}/${argomentoId||materiaId}/${Date.now()}_${safeName}`
       const { error: ue } = await supabase.storage.from('fonti').upload(path, blob, { contentType: ct })
       if (ue) return
       const { data: { publicUrl } } = supabase.storage.from('fonti').getPublicUrl(path)

@@ -290,7 +290,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       const isNew=!localStorage.getItem('fb_onb_'+u.id)
       if(isNew){setOnb(true);setOnbStep(0)}
       const ss=sessionStorage.getItem('fb_screen'),sm=sessionStorage.getItem('fb_mat'),sa=sessionStorage.getItem('fb_arg')
-      if(ss==='argomento'&&sm&&sa){setCurMateriaId(sm);setCurArgId(sa);await loadFonti(sa);await loadStorico(sa);setScreen('argomento')}
+      if(ss==='argomento'&&sm&&sa){setCurMateriaId(sm);setCurArgId(sa);await loadFonti(sa,sm);await loadStorico(sa);setScreen('argomento')}
       else if(ss==='argomenti'&&sm){setCurMateriaId(sm);setScreen('argomenti')}
       else setScreen('home')
     }catch{
@@ -300,8 +300,33 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   }
   async function loadMaterie(email){const{data}=await supabase.from('materie').select('*').eq('utente_email',email).order('created_at');setMaterie(data||[])}
   async function loadArgomenti(mid){const{data}=await supabase.from('argomenti').select('*').eq('materia_id',mid).order('created_at');setArgomenti(prev=>[...prev.filter(a=>a.materia_id!==mid),...(data||[])])}
-  async function loadFonti(aid){const{data}=await supabase.from('fonti').select('*').eq('argomento_id',aid).order('created_at');setFonti(data||[])}
+  async function loadFonti(aid,mid){
+    const q=mid
+      ?supabase.from('fonti').select('*').or(`argomento_id.eq.${aid},and(argomento_id.is.null,materia_id.eq.${mid})`)
+      :supabase.from('fonti').select('*').eq('argomento_id',aid)
+    const{data}=await q.order('created_at')
+    setFonti(data||[])
+  }
   async function loadStorico(aid){const{data}=await supabase.from('storico').select('*').eq('argomento_id',aid).order('created_at',{ascending:false});setStorico(data||[])}
+  async function openArgomento(a){
+    setCurArgId(a.id);setArgTab('chat');setChatMsgs([])
+    loadFonti(a.id,curMateriaId)
+    const{data}=await supabase.from('storico').select('*').eq('argomento_id',a.id).order('created_at',{ascending:false})
+    setStorico(data||[])
+    // Ricostruisci chat dallo storico in ordine cronologico
+    const msgs=[]
+    for(const e of (data||[]).filter(s=>s.tipo==='chat').reverse()){
+      const lines=e.contenuto.split('\n');let cur=null
+      for(const line of lines){
+        if(line.startsWith('Tu: ')){if(cur)msgs.push(cur);cur={role:'user',content:line.slice(4)}}
+        else if(line.startsWith('AI: ')){if(cur)msgs.push(cur);cur={role:'ai',content:line.slice(4)}}
+        else if(cur){cur.content+='\n'+line}
+      }
+      if(cur)msgs.push(cur)
+    }
+    setChatMsgs(msgs)
+    setScreen('argomento')
+  }
   async function loadProviders(){const{data}=await supabase.from('ai_providers').select('*').order('created_at');setProviders(data||[])}
   async function loadRipassi(email){const{data}=await supabase.from('studio_pianificato').select('*').eq('utente_email',email).order('created_at',{ascending:false});setRipassi(data||[])}
 
@@ -528,7 +553,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     const argId=r.argomento_id||(argomenti.find(a=>a.materia_id===r.materia_id)?.id)
     if(!argId){toast('Nessun argomento trovato per questo ripasso');return}
     setCurMateriaId(r.materia_id);setCurArgId(argId)
-    await loadFonti(argId);await loadStorico(argId)
+    await loadFonti(argId,r.materia_id);await loadStorico(argId)
     setScreen('argomento');setArgTab('strumenti')
     // Auto-start quiz after a short delay to let state settle
     setTimeout(()=>{
@@ -568,7 +593,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   const curMateria=materie.find(m=>m.id===curMateriaId)
   const curArgomento=argomenti.find(a=>a.id===curArgId)
   const activeProvider=providers.find(p=>p.attivo)
-  const argFonti=fonti.filter(f=>f.argomento_id===curArgId)
+  const argFonti=fonti.filter(f=>f.argomento_id===curArgId||f.argomento_id==null)
   const argStorico=storico.filter(s=>s.argomento_id===curArgId)
 
   /* ══════════════════════════════════════════
@@ -689,7 +714,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
           {argomenti.filter(a=>a.materia_id===curMateriaId).length===0&&<div className="empty"><span>📝</span><p>Nessun argomento. Creane uno!</p></div>}
           {argomenti.filter(a=>a.materia_id===curMateriaId).map(a=>(
             <div key={a.id} className="argomento-row"
-              onClick={()=>{if(selArg.size>0){const n=new Set(selArg);n.has(a.id)?n.delete(a.id):n.add(a.id);setSelArg(n);return}setCurArgId(a.id);setArgTab('chat');loadFonti(a.id);loadStorico(a.id);setScreen('argomento')}}
+              onClick={()=>{if(selArg.size>0){const n=new Set(selArg);n.has(a.id)?n.delete(a.id):n.add(a.id);setSelArg(n);return}openArgomento(a)}}
               onContextMenu={e=>{e.preventDefault();const n=new Set(selArg);n.has(a.id)?n.delete(a.id):n.add(a.id);setSelArg(n)}}
               onTouchStart={()=>{lpRef.current=setTimeout(()=>{const n=new Set(selArg);n.has(a.id)?n.delete(a.id):n.add(a.id);setSelArg(n)},600)}}
               onTouchEnd={()=>clearTimeout(lpRef.current)}
@@ -1251,7 +1276,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       onClose={()=>setShowFontiUpload(false)}
       onComplete={async()=>{
         setShowFontiUpload(false)
-        await loadFonti(curArgId)
+        await loadFonti(curArgId,curMateriaId)
       }}
     />}
 

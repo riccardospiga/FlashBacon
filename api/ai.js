@@ -18,8 +18,14 @@ async function getActiveProvider() {
   return data
 }
 
-const isPdf   = u => /\.pdf($|\?)|application%2Fpdf/i.test(u)
-const isImage = u => /\.(jpg|jpeg|png|gif|webp)($|\?)/i.test(u)
+const isPdf     = u => /\.pdf($|\?)|application%2Fpdf/i.test(u) || u.startsWith('data:application/pdf')
+const isImage   = u => /\.(jpg|jpeg|png|gif|webp)($|\?)/i.test(u) || /^data:image\//i.test(u)
+const isDataUrl = u => typeof u === 'string' && u.startsWith('data:')
+
+function parseDataUrl(dataUrl) {
+  const m = dataUrl.match(/^data:([^;]+);base64,(.+)$/)
+  return m ? { mime: m[1], b64: m[2] } : null
+}
 
 async function fetchBase64(url) {
   const res = await fetch(url)
@@ -50,8 +56,14 @@ function buildLengthDesc(length) {
 async function callGemini(apiKey, model, prompt, imageUrls, systemPrompt) {
   const parts = []
   for (const url of imageUrls) {
-    if (isPdf(url))        parts.push({ file_data: { mime_type: 'application/pdf', file_uri: url } })
-    else if (isImage(url)) parts.push({ file_data: { mime_type: 'image/jpeg',      file_uri: url } })
+    if (isDataUrl(url)) {
+      const parsed = parseDataUrl(url)
+      if (parsed) parts.push({ inline_data: { mime_type: parsed.mime, data: parsed.b64 } })
+    } else if (isPdf(url)) {
+      parts.push({ file_data: { mime_type: 'application/pdf', file_uri: url } })
+    } else if (isImage(url)) {
+      parts.push({ file_data: { mime_type: 'image/jpeg', file_uri: url } })
+    }
   }
   parts.push({ text: systemPrompt + '\n\n' + prompt })
   const res = await fetch(
@@ -67,8 +79,16 @@ async function callAnthropic(apiKey, model, prompt, imageUrls, systemPrompt) {
   const content = []
   for (const url of imageUrls.slice(0, 5)) {
     try {
-      const { b64, mime } = await fetchBase64(url)
-      const mt = (isPdf(url) || mime === 'application/pdf') ? 'application/pdf' : mime
+      let b64, mime
+      if (isDataUrl(url)) {
+        const parsed = parseDataUrl(url)
+        if (!parsed) continue
+        b64 = parsed.b64; mime = parsed.mime
+      } else {
+        const fetched = await fetchBase64(url)
+        b64 = fetched.b64; mime = fetched.mime
+      }
+      const mt = mime === 'application/pdf' ? 'application/pdf' : mime
       content.push({ type: mt === 'application/pdf' ? 'document' : 'image', source: { type: 'base64', media_type: mt, data: b64 } })
     } catch(e) { console.warn('Skipped:', e.message) }
   }

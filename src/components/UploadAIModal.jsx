@@ -169,38 +169,43 @@ export default function UploadAIModal({ onClose, materie, utente, onComplete, di
         ? materie.map(m => `- "${m.nome}" id:${m.id}`).join('\n')
         : '(nessuna materia esistente)'
 
-      const prompt = `Sei un assistente di studio. Analizza i materiali caricati e proponi una struttura di studio sintetica.
+      const systemContext = `You are an intelligent academic organizer for FlashBacon, a study app used by students worldwide.
 
-Materie già esistenti:
-${existingList}
+Your job is to analyze all the study materials provided — images, PDFs, documents, links, audio transcriptions, YouTube transcriptions, and plain text — and organize them into a clear, logical academic structure.
 
-Materiali caricati (indice e nome):
-${fileList}
+RULES:
+- Analyze EVERY material provided, without exception. Never ignore images, links, or any file type.
+- Group materials by academic subject (e.g. History, Physics, Latin, Math), not by file type or source.
+- Create a maximum of 1 subject per upload unless the materials are clearly from different academic disciplines.
+- Create a maximum of 3-4 broad topics per subject. Never create micro-topics from single paragraphs.
+- If a subject already exists in the user's library, prefer adding to it rather than creating a duplicate.
+- Topic names must be broad, descriptive, and academically meaningful (e.g. "World War II", "Nuclear Energy", "Latin Subordinate Clauses").
+- Base your analysis on the overall theme of each material, not on its internal sections or paragraphs.
+- If two materials share the same subject, group them under the same subject even if they come from different sources.
+- Always respond ONLY with valid JSON, no explanations, no markdown, no asterisks.
 
-REGOLE FONDAMENTALI (rispettale rigorosamente):
-1. Massimo 1 materia per upload, salvo contenuti CHIARAMENTE distinti per disciplina (es. matematica + storia insieme).
-2. Massimo 3-4 argomenti per materia, solo se davvero distinti tematicamente — NON dividere per paragrafi o sezioni del documento.
-3. Se il contenuto è omogeneo → 1 materia, 1 solo argomento.
-4. Preferisci argomenti ampi e descrittivi (es. "Termodinamica" non "Legge di Boyle" e "Legge di Charles" separati).
-5. Ragiona prima sul titolo e tema generale del documento, poi sul contenuto dettagliato.
-6. Usa una materia esistente quando il tema corrisponde chiaramente.
-
-Rispondi SOLO con JSON valido, nessun testo prima o dopo:
+OUTPUT FORMAT:
 {
   "nuove_materie": [
-    { "nome": "...", "emoji": "📚", "argomenti": ["...", "..."], "item_indices": [0, 1] }
+    { "nome": "...", "emoji": "📚", "argomenti": ["...", "..."], "item_indices": [0, 2] }
   ],
   "aggiunte_esistenti": [
-    { "materia_id": "...", "materia_nome": "...", "argomenti": ["..."], "item_indices": [2] }
+    { "materia_id": "...", "materia_nome": "...", "argomenti": ["..."], "item_indices": [1] }
   ]
-}
+}`
 
-item_indices = indici dei materiali caricati sopra. emoji appropriate alla materia.`
+      const prompt = `Materials to organize (index and name):
+${fileList}
+
+Existing subjects in the user's library:
+${existingList}
+
+Analyze all materials above and return the JSON structure.`
 
       const res = await fetch('/api/ai', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, images, textSources, urlSources, settings: { length: 2 }, systemContext: 'Sei FlashBacon AI. Rispondi SOLO con JSON.', fileNames: fileList })
+        body: JSON.stringify({ prompt, images, textSources, urlSources, settings: { length: 2 }, systemContext, fileNames: fileList })
       })
 
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Errore AI') }

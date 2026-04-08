@@ -31,10 +31,21 @@ function OutputCfgSheet({tool, cfg, onChange, onGenerate, onClose}){
   return(
     <div className="sheet-ov" onClick={onClose}>
       <div className="sheet" onClick={e=>e.stopPropagation()}>
-        <div className="cfg-sheet-title">✏️ Personalizza output</div>
-        <div className="cfg-sheet-sub">Impostazioni per {tool==='quiz'?'Quiz Multipla':tool==='quiz-aperta'?'Quiz Aperta':tool==='flashcards'?'Flash Cards':tool==='riassunto'?'Riassunto':tool==='mappa'?'Mappa Concettuale':'Punti Chiave'}</div>
+        <div className="cfg-sheet-title">⚙️ Personalizza output</div>
+        <div className="cfg-sheet-sub">Impostazioni per {tool==='quiz'?'Quiz':tool==='quiz-aperta'?'Quiz Aperta':tool==='flashcards'?'Flash Cards':tool==='riassunto'?'Riassunto':tool==='mappa'?'Mappa Concettuale':'Punti Chiave'}</div>
 
-        {/* Lunghezza / numero per tutti */}
+        {/* Modalità quiz (multipla / aperta) */}
+        {isQuiz&&(
+          <div className="cfg-row">
+            <span className="cfg-label">Modalità</span>
+            <div className="cfg-btns">
+              <button className={`cfg-btn ${(cfg.mode||'multipla')==='multipla'?'active':''}`} onClick={()=>onChange({...cfg,mode:'multipla'})}>Multipla</button>
+              <button className={`cfg-btn ${cfg.mode==='aperta'?'active':''}`} onClick={()=>onChange({...cfg,mode:'aperta'})}>Aperta</button>
+            </div>
+          </div>
+        )}
+
+        {/* Lunghezza / numero */}
         {(isQuiz||isFC)?(
           <div className="cfg-row">
             <span className="cfg-label">N. domande</span>
@@ -117,9 +128,6 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   // UI sheets/modals
   const [sheetMat,setSheetMat]=useState(false)
   const [sheetArg,setSheetArg]=useState(false)
-  const [sheetFontePicker,setSheetFontePicker]=useState(false)
-  const [sheetTextFonte,setSheetTextFonte]=useState(false)
-  const [sheetUrlFonte,setSheetUrlFonte]=useState(false)
   const [sheetRename,setSheetRename]=useState(null)
   const [sheetRenameArg,setSheetRenameArg]=useState(null)
   const [sheetOutputCfg,setSheetOutputCfg]=useState(null) // {tool, cfg}
@@ -151,8 +159,6 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   const [regEmail,setRegEmail]=useState('')
   const [regPass,setRegPass]=useState('')
   const [renameVal,setRenameVal]=useState('')
-  const [textFonteVal,setTextFonteVal]=useState('')
-  const [urlFonteVal,setUrlFonteVal]=useState('')
 
   // AI settings
   const [chatLength,setChatLength]=useState(2) // 1-3
@@ -200,6 +206,15 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   const [newKey,setNewKey]=useState('')
   const [adminLoading,setAdminLoading]=useState(false)
 
+  // Inline title editing
+  const [editingArgTitle,setEditingArgTitle]=useState(false)
+  const [argTitleVal,setArgTitleVal]=useState('')
+  const [editingMateriaTitle,setEditingMateriaTitle]=useState(false)
+  const [materiaTitleVal,setMaterialaTitleVal]=useState('')
+
+  // Quiz-aperta one-at-a-time
+  const [quizApertaIdx,setQuizApertaIdx]=useState(0)
+
   const lpRef=useRef(null)
   const pendingToolRef=useRef(null) // for background generation
 
@@ -209,7 +224,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     const handler=e=>{
       if(fullpage){e.preventDefault();setFullpage(null);return}
       if(dialog){e.preventDefault();setDialog(null);return}
-      const sheets=[sheetMat,sheetArg,sheetFontePicker,sheetTextFonte,sheetUrlFonte,sheetRename,sheetOutputCfg,sheetPromptMode]
+      const sheets=[sheetMat,sheetArg,sheetRename,sheetOutputCfg,sheetPromptMode]
       if(sheets.some(Boolean)){e.preventDefault();closeAllSheets();return}
       const next=backMap[screen]
       if(next){e.preventDefault();navTo(next)}
@@ -217,9 +232,9 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     window.addEventListener('popstate',handler)
     window.history.pushState({},'',window.location.href)
     return()=>window.removeEventListener('popstate',handler)
-  },[screen,fullpage,dialog,sheetMat,sheetArg,sheetFontePicker,sheetTextFonte,sheetUrlFonte,sheetRename,sheetOutputCfg,sheetPromptMode])
+  },[screen,fullpage,dialog,sheetMat,sheetArg,sheetRename,sheetOutputCfg,sheetPromptMode])
 
-  function closeAllSheets(){setSheetMat(false);setSheetArg(false);setSheetFontePicker(false);setSheetTextFonte(false);setSheetUrlFonte(false);setSheetRename(null);setSheetOutputCfg(null);setSheetPromptMode(false);setShowQuizPicker(false)}
+  function closeAllSheets(){setSheetMat(false);setSheetArg(false);setSheetRename(null);setSheetOutputCfg(null);setSheetPromptMode(false);setShowQuizPicker(false)}
 
   /* ── SESSION STORAGE ── */
   useEffect(()=>{
@@ -238,9 +253,14 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       if(session)loadUser(session.user)
       else setScreen('login')
     }).catch(()=>{clearTimeout(t);setScreen('login')})
-    const{data:{subscription}}=supabase.auth.onAuthStateChange((_,s)=>{
-      if(s)loadUser(s.user)
-      else{setUtente(null);setScreen('login')}
+    const{data:{subscription}}=supabase.auth.onAuthStateChange((event,s)=>{
+      // Only react to real sign-in/out events — ignore TOKEN_REFRESHED, USER_UPDATED etc.
+      if(event==='SIGNED_IN'||event==='INITIAL_SESSION'){
+        if(s)loadUser(s.user)
+        else setScreen('login')
+      }else if(event==='SIGNED_OUT'){
+        setUtente(null);setScreen('login')
+      }
     })
     return()=>subscription.unsubscribe()
   },[])
@@ -277,12 +297,26 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     return()=>clearInterval(interval)
   },[ripassi,materie])
 
+  /* ── SETTINGS PERSISTENCE (localStorage) ── */
+  useEffect(()=>{
+    const saved=localStorage.getItem('fb_settings')
+    if(saved){try{const s=JSON.parse(saved);if(s.chatLength)setChatLength(s.chatLength);if(s.promptMode)setPromptMode(s.promptMode);if(s.outputCfg)setOutputCfg(s.outputCfg)}catch{}}
+  },[])
+
+  function saveSettings(patch){
+    const current={chatLength,promptMode,outputCfg,...patch}
+    localStorage.setItem('fb_settings',JSON.stringify(current))
+  }
+
   /* ── DATA LOADERS ── */
   async function loadUser(user){
     try{
       const{data}=await supabase.from('profili').select('*').eq('id',user.id).single()
       const u=data||{id:user.id,nome:user.email.split('@')[0],email:user.email,is_admin:false}
       setUtente(u)
+      // Load persisted settings
+      const saved=localStorage.getItem('fb_settings')
+      if(saved){try{const s=JSON.parse(saved);if(s.chatLength)setChatLength(s.chatLength);if(s.promptMode)setPromptMode(s.promptMode);if(s.outputCfg)setOutputCfg(s.outputCfg)}catch{}}
       await loadMaterie(u.email)
       const{data:args}=await supabase.from('argomenti').select('*').order('created_at')
       setArgomenti(args||[])
@@ -328,7 +362,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     setScreen('argomento')
   }
   async function loadProviders(){const{data}=await supabase.from('ai_providers').select('*').order('created_at');setProviders(data||[])}
-  async function loadRipassi(email){const{data}=await supabase.from('studio_pianificato').select('*').eq('utente_email',email).order('created_at',{ascending:false});setRipassi(data||[])}
+  async function loadRipassi(email){const{data}=await supabase.from('studio_pianificato').select('*').eq('utente_email',email).order('created_at',{ascending:true});setRipassi(data||[])}
 
   /* ── NAVIGATION ── */
   function navTo(sc){
@@ -351,46 +385,14 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   async function deleteArgomenti(ids){for(const id of ids)await supabase.from('argomenti').delete().eq('id',id);setArgomenti(p=>p.filter(a=>!ids.has(a.id)));setSelArg(new Set());toast('Eliminato ✓')}
 
   /* ── FONTI ── */
-  async function uploadFile(file){
-    try{
-      const ext=getExt(file.name)
-      const safeName=file.name.replace(/[^a-zA-Z0-9._-]/g,'_')
-      const path=`${utente.id}/${curArgId}/${Date.now()}_${safeName}`
-      let blob=file,ct=file.type||'application/octet-stream'
-      if(isImgExt(ext)){blob=await compressImg(file);ct='image/jpeg'}
-      const{error:ue}=await supabase.storage.from('fonti').upload(path,blob,{contentType:ct})
-      if(ue){toast('Errore storage: '+ue.message);return}
-      const{data:{publicUrl}}=supabase.storage.from('fonti').getPublicUrl(path)
-      const{data:row,error:ie}=await supabase.from('fonti').insert({
-        utente_email:utente.email,materia_id:curMateriaId,argomento_id:curArgId,
-        nome:file.name,url:publicUrl,tipo:'file'
-      }).select().single()
-      if(ie){toast('Errore DB: '+ie.message);return}
-      if(row){setFonti(p=>[...p,row]);toast('✓ '+file.name)}
-    }catch(e){toast('Errore: '+e.message)}
-  }
-  async function addTextFonte(){
-    if(!textFonteVal.trim())return
-    const nome='Testo — '+new Date().toLocaleDateString('it-IT')
-    const{data:row,error}=await supabase.from('fonti').insert({utente_email:utente.email,materia_id:curMateriaId,argomento_id:curArgId,nome,url:'',testo:textFonteVal.trim(),tipo:'text'}).select().single()
-    if(error){toast('Errore: '+error.message);return}
-    if(row)setFonti(p=>[...p,row]);setSheetTextFonte(false);setTextFonteVal('');toast('Testo aggiunto ✓')
-  }
-  async function addUrlFonte(){
-    const url=urlFonteVal.trim()
-    if(!url||!url.startsWith('http'))return
-    const nome=url.replace(/^https?:\/\//,'').split('/')[0]
-    const{data:row,error}=await supabase.from('fonti').insert({utente_email:utente.email,materia_id:curMateriaId,argomento_id:curArgId,nome,url,tipo:'url'}).select().single()
-    if(error){toast('Errore: '+error.message);return}
-    if(row)setFonti(p=>[...p,row]);setSheetUrlFonte(false);setUrlFonteVal('');toast('Link aggiunto ✓')
-  }
   async function deleteFonte(f){
     if(f.url&&f.tipo==='file'){const p=f.url.split('/fonti/')[1];if(p)await supabase.storage.from('fonti').remove([decodeURIComponent(p)])}
     await supabase.from('fonti').delete().eq('id',f.id);setFonti(p=>p.filter(x=>x.id!==f.id))
   }
   async function deleteFontiSel(){for(const id of selFonti){const f=fonti.find(x=>x.id===id);if(f)await deleteFonte(f)};setSelFonti(new Set());toast('Fonti eliminate ✓')}
   async function renameFonte(f,nome){await supabase.from('fonti').update({nome}).eq('id',f.id);setFonti(p=>p.map(x=>x.id===f.id?{...x,nome}:x));setSheetRename(null);toast('Rinominato ✓')}
-  async function renameArgomento(a,nome){await supabase.from('argomenti').update({nome}).eq('id',a.id);setArgomenti(p=>p.map(x=>x.id===a.id?{...x,nome}:x));setSheetRenameArg(null);toast('Rinominato ✓')}
+  async function renameArgomento(a,nome){if(!nome?.trim())return;await supabase.from('argomenti').update({nome:nome.trim()}).eq('id',a.id);setArgomenti(p=>p.map(x=>x.id===a.id?{...x,nome:nome.trim()}:x));setSheetRenameArg(null);toast('Rinominato ✓')}
+  async function renameMateria(id,nome){if(!nome?.trim())return;await supabase.from('materie').update({nome:nome.trim()}).eq('id',id);setMaterie(p=>p.map(m=>m.id===id?{...m,nome:nome.trim()}:m));toast('Rinominato ✓')}
 
   /* ── STORICO ── */
   async function saveStorico(tipo,contenuto){const{data}=await supabase.from('storico').insert({utente_email:utente.email,materia_id:curMateriaId,argomento_id:curArgId,tipo,contenuto}).select().single();if(data)setStorico(p=>[data,...p])}
@@ -399,12 +401,12 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
 
   /* ── PREPARE FONTI ── */
   function prepareFonti(){
-    const af=fonti.filter(f=>f.argomento_id===curArgId)
-    const images=af.filter(f=>f.tipo==='file'&&(isImgExt(getExt(f.nome))||getExt(f.nome)==='pdf')).map(f=>f.url)
+    // Include both argomento-specific fonti AND shared fonti (argomento_id===null) for this materia
+    const af=fonti.filter(f=>f.argomento_id===curArgId||f.argomento_id===null)
+    const images=af.filter(f=>(f.tipo==='file'||f.tipo==='audio')&&(isImgExt(getExt(f.nome))||getExt(f.nome)==='pdf')).map(f=>f.url)
     const textSources=af.filter(f=>f.tipo==='text').map(f=>f.testo||'')
-    const urlSources=af.filter(f=>f.tipo==='url').map(f=>f.url)
+    const urlSources=af.filter(f=>f.tipo==='url'||f.tipo==='youtube').map(f=>f.url)
     const docUrls=af.filter(f=>f.tipo==='file'&&!isImgExt(getExt(f.nome))&&getExt(f.nome)!=='pdf').map(f=>f.url)
-    // Include filenames as context for the AI
     const fileNames=af.map(f=>`[Fonte: ${f.nome}]`).join(', ')
     return{images,textSources,urlSources:[...urlSources,...docUrls],fileNames}
   }
@@ -463,7 +465,8 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   }
 
   async function runTool(key,cfg=outputCfg,isBackground=false){
-    const af=fonti.filter(f=>f.argomento_id===curArgId)
+    // Include shared (null argomento_id) fonti in check
+    const af=fonti.filter(f=>f.argomento_id===curArgId||f.argomento_id===null)
     if(!af.length){toast('Carica almeno una fonte prima');return}
 
     if(!isBackground){
@@ -490,8 +493,8 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       else if(key==='riassunto'){const d=parseRiassunto(result);setRiassuntoData(d);setExpandedSecs(new Set(d.map((_,i)=>i)));setFullpage({title:'Riassunto',type:'riassunto',data:d})}
       else if(key==='quiz'){const p=parseQuiz(result);setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setFullpage({title:'Quiz',type:'quiz',data:p})}
       else if(key==='quiz-aperta'){
-        const qs=result.split('---').map(b=>b.trim()).filter(Boolean).map(b=>({dom:b.match(/DOMANDA:\s*(.+?)(?:\n|$)/)?.[1]?.trim()||'',risp:b.match(/RISPOSTA:\s*([\s\S]+?)(?:---|$)/)?.[1]?.replace(/---$/,'').trim()||''})).filter(q=>q.dom)
-        setQuizData(qs);setOpenAnswers({});setOpenRevealed({});setFullpage({title:'Quiz Aperta',type:'quiz-aperta',data:qs})
+        const qs=parseOpenQuiz(result)
+        setQuizData(qs);setQuizApertaIdx(0);setOpenAnswers({});setOpenRevealed({});setFullpage({title:'Quiz Aperta',type:'quiz-aperta',data:qs})
       }
       else setFullpage({title:'Punti Chiave',type:'text',data:result})
     }catch(e){
@@ -520,6 +523,12 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   }
   useEffect(()=>{chatEndRef.current?.scrollIntoView({behavior:'smooth'})},[chatMsgs])
 
+  // Persist AI settings to localStorage whenever they change
+  useEffect(()=>{
+    if(!utente)return
+    localStorage.setItem('fb_settings',JSON.stringify({chatLength,promptMode,outputCfg}))
+  },[chatLength,promptMode,outputCfg])
+
   /* ── OPEN FROM STORICO ── */
   function openStorico(s){
     if(s.tipo==='chat'){
@@ -536,15 +545,51 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     if(s.tipo==='mappa'){const d=parseMappa(s.contenuto);setMappaData(d);setExpandedNodes(new Set());setFullpage({title:'Mappa Concettuale',type:'mappa',data:d});return}
     if(s.tipo==='riassunto'){const d=parseRiassunto(s.contenuto);setRiassuntoData(d);setExpandedSecs(new Set(d.map((_,i)=>i)));setFullpage({title:'Riassunto',type:'riassunto',data:d});return}
     if(s.tipo==='quiz'){const p=parseQuiz(s.contenuto);if(p.length){setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setFullpage({title:'Quiz',type:'quiz',data:p});return}}
+    if(s.tipo==='quiz-aperta'){const qs=parseOpenQuiz(s.contenuto);if(qs.length){setQuizData(qs);setQuizApertaIdx(0);setOpenAnswers({});setOpenRevealed({});setFullpage({title:'Quiz Aperta',type:'quiz-aperta',data:qs});return}}
     setFullpage({title:s.tipo,type:'text',data:s.contenuto})
   }
 
   /* ── RIPASSO ── */
   async function saveRipasso(){
+    // Ask notification permission at creation time
+    if('Notification' in window&&Notification.permission==='default'){
+      await Notification.requestPermission()
+    }
     const{data}=await supabase.from('studio_pianificato').insert({utente_email:utente.email,materia_id:rMat,argomento_id:rArg,frequenza:rFreq,orario:rOrario,difficolta:2,quiz_num:rQNum,quiz_modalita:rQMode}).select().single()
-    if(data)setRipassi(p=>[data,...p])
+    if(data){
+      setRipassi(p=>[...p,data]) // ascending order: new entries at end
+      // Generate quiz immediately and save to Lab
+      generateRipassoAndSave(data)
+    }
     toast('Ripasso pianificato ✓')
     navTo('home')
+  }
+
+  async function generateRipassoAndSave(r){
+    // Load fonti for the argomento and generate a quiz, save to storico (Lab)
+    const argId=r.argomento_id||(argomenti.find(a=>a.materia_id===r.materia_id)?.id)
+    if(!argId)return
+    try{
+      // Load fonti directly (don't update global state)
+      const q=supabase.from('fonti').select('*').or(`argomento_id.eq.${argId},and(argomento_id.is.null,materia_id.eq.${r.materia_id})`)
+      const{data:rFonti}=await q.order('created_at')
+      const af=rFonti||[]
+      const images=af.filter(f=>(f.tipo==='file')&&(isImgExt(getExt(f.nome))||getExt(f.nome)==='pdf')).map(f=>f.url)
+      const textSources=af.filter(f=>f.tipo==='text').map(f=>f.testo||'')
+      const urlSources=[...af.filter(f=>f.tipo==='url'||f.tipo==='youtube').map(f=>f.url),...af.filter(f=>f.tipo==='file'&&!isImgExt(getExt(f.nome))&&getExt(f.nome)!=='pdf').map(f=>f.url)]
+      const fileNames=af.map(f=>`[Fonte: ${f.nome}]`).join(', ')
+
+      const cfg={num:r.quiz_num||5,diff:2,length:2}
+      const mode=r.quiz_modalita||'multipla'
+      const prompt=buildQuizPromptDirect(r,cfg,mode)
+      const systemContext=buildSystemContext()
+      const res=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,images,textSources,urlSources,settings:{length:2},systemContext,fileNames})})
+      if(!res.ok)return
+      const d=await res.json()
+      // Save to storico for the argomento (Lab)
+      await supabase.from('storico').insert({utente_email:utente.email,materia_id:r.materia_id,argomento_id:argId,tipo:mode==='multipla'?'quiz':'quiz-aperta',contenuto:d.result})
+      showAIDone('✅ Quiz ripasso generato e salvato nel Lab!')
+    }catch(e){console.warn('generateRipassoAndSave:',e.message)}
   }
   async function deleteRipasso(id){await supabase.from('studio_pianificato').delete().eq('id',id);setRipassi(p=>p.filter(r=>r.id!==id));toast('Eliminato')}
 
@@ -567,8 +612,8 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
           setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0)
           setFullpage({title:'Quiz Ripasso',type:'quiz',data:p})
         }else{
-          const qs=result.split('---').map(b=>b.trim()).filter(Boolean).map(b=>({dom:b.match(/DOMANDA:\s*(.+?)(?:\n|$)/)?.[1]?.trim()||'',risp:b.match(/RISPOSTA:\s*([\s\S]+?)(?:---|$)/)?.[1]?.replace(/---$/,'').trim()||''})).filter(q=>q.dom)
-          setQuizData(qs);setOpenAnswers({});setOpenRevealed({})
+          const qs=parseOpenQuiz(result)
+          setQuizData(qs);setQuizApertaIdx(0);setOpenAnswers({});setOpenRevealed({})
           setFullpage({title:'Quiz Aperta Ripasso',type:'quiz-aperta',data:qs})
         }
       }).catch(e=>{setFullpage({title:'Errore',type:'text',data:'❌ '+e.message})})
@@ -707,7 +752,21 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
           <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
         </button>
       </div>
-      <div className="screen-title-bar"><h1>{curMateria?.emoji} {curMateria?.nome}</h1></div>
+      <div className="screen-title-bar">
+        {editingMateriaTitle
+          ?<input
+              className="materia-title-input"
+              value={materiaTitleVal}
+              onChange={e=>setMaterialaTitleVal(e.target.value)}
+              onBlur={()=>{renameMateria(curMateriaId,materiaTitleVal);setEditingMateriaTitle(false)}}
+              onKeyDown={e=>{if(e.key==='Enter'){renameMateria(curMateriaId,materiaTitleVal);setEditingMateriaTitle(false)}else if(e.key==='Escape')setEditingMateriaTitle(false)}}
+              autoFocus
+            />
+          :<h1 className="materia-title-editable" onClick={()=>{setMaterialaTitleVal(curMateria?.nome||'');setEditingMateriaTitle(true)}}>
+            {curMateria?.emoji} {curMateria?.nome}
+          </h1>
+        }
+      </div>
       <div className="home-body">
         {selArg.size>0&&<div className="sel-bar"><span>{selArg.size} selezionati</span><button className="btn-sm danger" onClick={()=>setDialog({icon:'🗑️',title:'Elimina argomenti?',msg:'Elimina gli argomenti selezionati?',confirmLabel:'Elimina',danger:true,onConfirm:()=>deleteArgomenti(selArg)})}>Elimina</button></div>}
         <div className="argomenti-list">
@@ -740,10 +799,19 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       <div className="arg-header">
         <button className="back-btn" onClick={()=>{loadArgomenti(curMateriaId);setScreen('argomenti')}}>← Indietro</button>
         <div className="arg-header-center">
-          <span className="arg-header-title">{curArgomento?.nome}</span>
-          <button className="arg-rename-btn" title="Rinomina" onClick={()=>{setSheetRenameArg(curArgomento);setRenameVal(curArgomento?.nome||'')}}>
-            <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-          </button>
+          {editingArgTitle
+            ?<input
+                className="arg-title-input"
+                value={argTitleVal}
+                onChange={e=>setArgTitleVal(e.target.value)}
+                onBlur={()=>{renameArgomento(curArgomento,argTitleVal);setEditingArgTitle(false)}}
+                onKeyDown={e=>{if(e.key==='Enter'){renameArgomento(curArgomento,argTitleVal);setEditingArgTitle(false)}else if(e.key==='Escape')setEditingArgTitle(false)}}
+                autoFocus
+              />
+            :<span className="arg-header-title" onClick={()=>{setArgTitleVal(curArgomento?.nome||'');setEditingArgTitle(true)}}>
+              {curArgomento?.nome}
+            </span>
+          }
         </div>
         <div style={{width:80}}/>
       </div>
@@ -804,7 +872,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
             {chatMsgs.map((m,i)=>(
               <div key={i} className={'chat-bubble '+m.role}>
                 <div className="chat-sender">{m.role==='user'?'Tu':'FlashBacon AI'}</div>
-                {m.content}
+                {m.role==='ai'?cleanText(m.content):m.content}
               </div>
             ))}
             {chatLoading&&<div className="chat-bubble ai"><div style={{display:'flex',gap:6,alignItems:'center'}}><Spinner/><span style={{fontSize:'.85rem'}}>Sto pensando…</span></div></div>}
@@ -827,14 +895,14 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
 
           <div className="lab-section-label">Genera con AI</div>
 
-          {/* Unified Quiz button */}
+          {/* Quiz button — click = pick type, ⚙️ = settings */}
           <div className="tool-card tool-card-wide" onClick={()=>setShowQuizPicker(true)}>
             <div className="tool-icon">❓</div>
             <div>
               <div className="tool-name">Quiz</div>
-              <div className="tool-desc">Multipla · Aperta — scegli la modalità</div>
+              <div className="tool-desc">Multipla · Aperta</div>
             </div>
-            <button className="tool-cfg-btn" style={{position:'static',marginLeft:'auto'}} onClick={e=>{e.stopPropagation();openToolCfg('quiz')}} title="Personalizza">✏️</button>
+            <button className="tool-cfg-btn" style={{position:'static',marginLeft:'auto'}} onClick={e=>{e.stopPropagation();openToolCfg('quiz')}} title="Personalizza">⚙️</button>
           </div>
 
           <div className="tools-grid">
@@ -844,9 +912,9 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
               {key:'mappa',icon:'🗺️',name:'Mappa concett.',desc:'Visuale interattiva'},
               {key:'punti',icon:'🎯',name:'Punti chiave',desc:'Concetti chiave'},
             ].map(t=>(
-              <div key={t.key} className="tool-card">
-                <button className="tool-cfg-btn" onClick={e=>{e.stopPropagation();openToolCfg(t.key)}} title="Personalizza">✏️</button>
-                <div onClick={()=>runTool(t.key,outputCfg,true)}>
+              <div key={t.key} className="tool-card" onClick={()=>runTool(t.key,outputCfg,true)}>
+                <button className="tool-cfg-btn" onClick={e=>{e.stopPropagation();openToolCfg(t.key)}} title="Personalizza">⚙️</button>
+                <div>
                   <div className="tool-icon">{t.icon}</div>
                   <div className="tool-name">{t.name}</div>
                   <div className="tool-desc">{t.desc}</div>
@@ -956,7 +1024,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
             <div key={p.id}><div style={{fontWeight:700,fontSize:'.9rem'}}>{p.nome_display}</div><div style={{fontSize:'.78rem',color:'var(--muted)',marginTop:2}}>{p.modello}</div></div>
           ))}
         </div>
-        <button className="btn-primary" onClick={()=>{toast('Salvato ✓');setScreen('profilo')}}>Salva</button>
+        <button className="btn-primary" onClick={()=>{saveSettings({chatLength,promptMode,outputCfg});toast('Salvato ✓');setScreen('profilo')}}>Salva</button>
       </div>
     </div>}
 
@@ -1047,7 +1115,8 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
           onClose={()=>setFpEditMode(false)}
         />
       </div>}
-      <div className="fp-body">
+      {/* fp-noscroll for quiz/fc/mappa; default scrollable for text/riassunto/loading */}
+      <div className={`fp-body${(fullpage.type==='quiz'||fullpage.type==='fc'||fullpage.type==='mappa'||fullpage.type==='quiz-aperta')?' fp-noscroll':''}`}>
         {fullpage.type==='loading'&&<div className="ai-loading"><Spinner/><p>L'AI sta elaborando le tue fonti…</p></div>}
         {fullpage.type==='text'&&<div style={{fontSize:'.9rem',lineHeight:1.75,whiteSpace:'pre-wrap',color:'var(--ink)'}}>{cleanText(fullpage.data||'')}</div>}
 
@@ -1058,7 +1127,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
                 {sec.title}<span>{expandedSecs.has(i)?'▲':'▼'}</span>
               </div>
               {expandedSecs.has(i)&&<div className="riassunto-sec-body">
-                {sec.items.map((it,j)=>it.type==='h3'?<h3 key={j}>{it.text}</h3>:it.type==='li'?<ul key={j}><li>{it.text}</li></ul>:<p key={j}>{it.text}</p>)}
+                {sec.items.map((it,j)=>it.type==='h3'?<h3 key={j}>{cleanText(it.text)}</h3>:it.type==='li'?<ul key={j}><li>{cleanText(it.text)}</li></ul>:<p key={j}>{cleanText(it.text)}</p>)}
               </div>}
             </div>
           ))}
@@ -1071,28 +1140,42 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
             <p style={{color:'var(--muted)'}}>Hai risposto correttamente a {quizScore} su {quizData.length}.</p>
             <button className="btn-primary" style={{maxWidth:220}} onClick={()=>{setQuizIdx(0);setQuizAnswered(false);setQuizScore(0)}}>Riprova</button>
           </div>
-        ):<>
+        ):<div className="quiz-fit">
           <div className="quiz-progress">{quizData.map((_,i)=><div key={i} className={`quiz-dot ${i<quizIdx?'done':i===quizIdx?'current':''}`}/>)}</div>
           <QuizQ q={quizData[quizIdx]} idx={quizIdx} total={quizData.length} answered={quizAnswered} setAnswered={setQuizAnswered} onNext={()=>{setQuizIdx(i=>i+1);setQuizAnswered(false)}} onCorrect={()=>setQuizScore(s=>s+1)}/>
-        </>)}
+        </div>)}
 
-        {fullpage.type==='quiz-aperta'&&quizData&&<div style={{display:'flex',flexDirection:'column',gap:18}}>
-          {quizData.map((q,i)=>(
-            <div key={i} className="quiz-card">
-              <div className="quiz-q">{i+1}. {q.dom||q.domanda}</div>
-              <textarea className="quiz-open-input" placeholder="Scrivi la tua risposta…" value={openAnswers[i]||''} onChange={e=>setOpenAnswers(p=>({...p,[i]:e.target.value}))}/>
-              {!openRevealed[i]?<button className="btn-sm primary" onClick={()=>setOpenRevealed(p=>({...p,[i]:true}))}>Mostra risposta attesa</button>:
-              <div className="quiz-reveal"><strong>Risposta attesa:</strong><br/>{cleanText(q.risp||q.risposta||'')}</div>}
+        {fullpage.type==='quiz-aperta'&&quizData&&quizData.length>0&&(
+          quizApertaIdx>=quizData.length?(
+            <div className="quiz-score">
+              <div className="quiz-score-circle" style={{fontSize:'1.2rem'}}>✓</div>
+              <h2 style={{fontFamily:'Syne,sans-serif',fontWeight:800,fontSize:'1.3rem'}}>Completato!</h2>
+              <p style={{color:'var(--muted)'}}>Hai risposto a tutte le {quizData.length} domande.</p>
+              <button className="btn-primary" style={{maxWidth:220}} onClick={()=>{setQuizApertaIdx(0);setOpenAnswers({});setOpenRevealed({})}}>Riprova</button>
             </div>
-          ))}
-        </div>}
+          ):(
+            <div className="quiz-fit">
+              <div className="quiz-progress">{quizData.map((_,i)=><div key={i} className={`quiz-dot ${i<quizApertaIdx?'done':i===quizApertaIdx?'current':''}`}/>)}</div>
+              <div className="quiz-card" style={{flex:1,overflowY:'auto'}}>
+                <p style={{fontSize:'.76rem',color:'var(--muted)',fontWeight:600,marginBottom:10}}>Domanda {quizApertaIdx+1} di {quizData.length}</p>
+                <div className="quiz-q">{cleanText(quizData[quizApertaIdx]?.dom||quizData[quizApertaIdx]?.domanda||'')}</div>
+                <textarea className="quiz-open-input" placeholder="Scrivi la tua risposta…" value={openAnswers[quizApertaIdx]||''} onChange={e=>setOpenAnswers(p=>({...p,[quizApertaIdx]:e.target.value}))}/>
+                {!openRevealed[quizApertaIdx]
+                  ?<button className="btn-sm primary" onClick={()=>setOpenRevealed(p=>({...p,[quizApertaIdx]:true}))}>Mostra risposta attesa</button>
+                  :<div className="quiz-reveal"><strong>Risposta attesa:</strong><br/>{cleanText(quizData[quizApertaIdx]?.risp||quizData[quizApertaIdx]?.risposta||'')}</div>
+                }
+                {openRevealed[quizApertaIdx]&&<button className="btn-primary" style={{marginTop:12}} onClick={()=>setQuizApertaIdx(i=>i+1)}>{quizApertaIdx+1<quizData.length?'Prossima →':'Vedi risultato'}</button>}
+              </div>
+            </div>
+          )
+        )}
 
-        {fullpage.type==='fc'&&fcCards.length>0&&<div className="fc-wrap">
+        {fullpage.type==='fc'&&fcCards.length>0&&<div className="fc-wrap-fit">
           <div className="fc-progress">{fcCards.map((_,i)=><div key={i} className={`fc-dot ${i<=fcIdx?'seen':''}`}/>)}</div>
-          <div className="fc-scene" onClick={()=>setFcFlipped(f=>!f)}>
-            <div className="fc-card" style={{transform:fcFlipped?'rotateY(180deg)':'none',minHeight:210,position:'relative'}}>
-              <div className="fc-face fc-front"><div className="fc-label">FRONTE</div><div className="fc-text">{fcCards[fcIdx]?.front}</div></div>
-              <div className="fc-face fc-back"><div className="fc-label">RETRO</div><div className="fc-text">{fcCards[fcIdx]?.back}</div></div>
+          <div className="fc-scene" onClick={()=>setFcFlipped(f=>!f)} style={{flex:1,display:'flex',flexDirection:'column'}}>
+            <div className="fc-card" style={{transform:fcFlipped?'rotateY(180deg)':'none',flex:1,position:'relative'}}>
+              <div className="fc-face fc-front"><div className="fc-label">FRONTE</div><div className="fc-text">{cleanText(fcCards[fcIdx]?.front||'')}</div></div>
+              <div className="fc-face fc-back"><div className="fc-label">RETRO</div><div className="fc-text">{cleanText(fcCards[fcIdx]?.back||'')}</div></div>
             </div>
           </div>
           <div className="fc-hint">Tocca per girare</div>
@@ -1103,7 +1186,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
           </div>
         </div>}
 
-        {fullpage.type==='mappa'&&mappaData&&<div className="map-container">
+        {fullpage.type==='mappa'&&mappaData&&<div className="map-fit">
           <div className="map-root">{mappaData.title||'Mappa Concettuale'}</div>
           <div className="map-connector-down"/>
           <div className="map-branches-row">
@@ -1111,11 +1194,11 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
               <div key={i} className="map-branch">
                 <div className="map-connector-down"/>
                 <div className={`map-node ${expandedNodes.has(i)?'expanded':''}`} onClick={()=>{const n=new Set(expandedNodes);n.has(i)?n.delete(i):n.add(i);setExpandedNodes(n)}}>
-                  {b.title}
+                  {cleanText(b.title)}
                   {b.children?.length>0&&<span style={{fontSize:'.7rem',color:'var(--muted)',display:'block',marginTop:2}}>{b.children.length} sottoconcetti</span>}
                 </div>
                 {expandedNodes.has(i)&&b.children?.length>0&&<div className="map-children">
-                  {b.children.map((c,j)=><div key={j} className="map-child">{c}</div>)}
+                  {b.children.map((c,j)=><div key={j} className="map-child">{cleanText(c)}</div>)}
                 </div>}
               </div>
             ))}
@@ -1151,41 +1234,6 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       <button className="btn-primary" onClick={saveArgomento}>Crea argomento</button>
     </div></div>}
 
-    {sheetFontePicker&&<div className="sheet-ov" onClick={()=>setSheetFontePicker(false)}><div className="sheet" onClick={e=>e.stopPropagation()}>
-      <h3>Aggiungi fonte</h3>
-      <div className="fonte-picker">
-        {[
-          {icon:'🖼️',label:'Galleria',accept:'image/*',multiple:true},
-          {icon:'📷',label:'Fotocamera',accept:'image/*',capture:'environment'},
-          {icon:'📄',label:'PDF',accept:'.pdf',multiple:true},
-          {icon:'📝',label:'Word',accept:'.doc,.docx',multiple:true},
-          {icon:'📊',label:'PowerPoint',accept:'.ppt,.pptx',multiple:true},
-          {icon:'📈',label:'Excel',accept:'.xls,.xlsx',multiple:true},
-        ].map((t,i)=>(
-          <label key={i} className="fonte-type-btn">
-            <span>{t.icon}</span><p>{t.label}</p>
-            <input type="file" accept={t.accept} multiple={!!t.multiple} capture={t.capture} style={{display:'none'}} onChange={e=>{Array.from(e.target.files).forEach(uploadFile);setSheetFontePicker(false)}}/>
-          </label>
-        ))}
-        <button className="fonte-type-btn" onClick={()=>{setSheetFontePicker(false);setSheetTextFonte(true)}}><span>✏️</span><p>Testo</p></button>
-        <button className="fonte-type-btn" onClick={()=>{setSheetFontePicker(false);setSheetUrlFonte(true)}}><span>🔗</span><p>Link web</p></button>
-        <label className="fonte-type-btn"><span>📁</span><p>Altro file</p><input type="file" accept="*/*" multiple style={{display:'none'}} onChange={e=>{Array.from(e.target.files).forEach(uploadFile);setSheetFontePicker(false)}}/></label>
-      </div>
-    </div></div>}
-
-    {sheetTextFonte&&<div className="sheet-ov" onClick={()=>setSheetTextFonte(false)}><div className="sheet" onClick={e=>e.stopPropagation()}>
-      <h3>✏️ Aggiungi testo</h3>
-      <div className="field"><label>Incolla il testo</label><textarea style={{width:'100%',minHeight:140,padding:'12px 14px',border:'1.5px solid var(--gray2)',borderRadius:12,fontFamily:"'DM Sans',sans-serif",fontSize:'.9rem',outline:'none',resize:'vertical'}} value={textFonteVal} onChange={e=>setTextFonteVal(e.target.value)} placeholder="Incolla qui il tuo testo…"/></div>
-      <button className="btn-primary" onClick={addTextFonte}>Aggiungi testo</button>
-    </div></div>}
-
-    {sheetUrlFonte&&<div className="sheet-ov" onClick={()=>setSheetUrlFonte(false)}><div className="sheet" onClick={e=>e.stopPropagation()}>
-      <h3>🔗 Aggiungi link web</h3>
-      <div className="field"><label>URL del sito</label><input type="url" value={urlFonteVal} onChange={e=>setUrlFonteVal(e.target.value)} placeholder="https://…" onKeyDown={e=>e.key==='Enter'&&addUrlFonte()}/></div>
-      <p style={{fontSize:'.78rem',color:'var(--muted)',marginTop:-8,marginBottom:8}}>L'AI leggerà il contenuto testuale della pagina.</p>
-      <button className="btn-primary" onClick={addUrlFonte}>Aggiungi link</button>
-    </div></div>}
-
     {sheetRename&&<div className="sheet-ov" onClick={()=>setSheetRename(null)}><div className="sheet" onClick={e=>e.stopPropagation()}>
       <h3>Rinomina fonte</h3>
       <div className="field"><label>Nuovo nome</label><input type="text" value={renameVal} onChange={e=>setRenameVal(e.target.value)} onKeyDown={e=>e.key==='Enter'&&renameFonte(sheetRename,renameVal)}/></div>
@@ -1212,7 +1260,13 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       tool={sheetOutputCfg.tool}
       cfg={sheetOutputCfg.cfg}
       onChange={cfg=>setSheetOutputCfg({...sheetOutputCfg,cfg})}
-      onGenerate={()=>{const{tool,cfg}=sheetOutputCfg;setOutputCfg(cfg);setSheetOutputCfg(null);runTool(tool,cfg)}}
+      onGenerate={()=>{
+        const{tool,cfg}=sheetOutputCfg
+        setOutputCfg(cfg);setSheetOutputCfg(null)
+        // Resolve actual tool key: quiz with mode='aperta' → 'quiz-aperta'
+        const actualTool=(tool==='quiz'&&cfg.mode==='aperta')?'quiz-aperta':tool
+        runTool(actualTool,cfg)
+      }}
       onClose={()=>setSheetOutputCfg(null)}
     />}
 
@@ -1288,12 +1342,12 @@ function QuizQ({q,idx,total,answered,setAnswered,onNext,onCorrect}){
   const [chosen,setChosen]=useState(null)
   function answer(i){if(answered)return;setChosen(i);setAnswered(true);if(i===(q.cor??q.corretta))onCorrect?.()}
   return(
-    <div className="quiz-card">
+    <div className="quiz-card" style={{flex:1,overflowY:'auto'}}>
       <p style={{fontSize:'.76rem',color:'var(--muted)',fontWeight:600,marginBottom:10}}>Domanda {idx+1} di {total}</p>
-      <div className="quiz-q">{q.dom||q.domanda}</div>
+      <div className="quiz-q">{cleanText(q.dom||q.domanda||'')}</div>
       {(q.opts||q.opzioni||[]).map((o,i)=>(
         <button key={i} className={`quiz-opt ${answered?(i===(q.cor??q.corretta)?'correct':i===chosen?'wrong':''):''}`} onClick={()=>answer(i)} disabled={answered}>
-          <span className="quiz-letter">{['A','B','C','D'][i]}</span>{o}
+          <span className="quiz-letter">{['A','B','C','D'][i]}</span>{cleanText(o||'')}
         </button>
       ))}
       {answered&&<div className="quiz-exp">💡 {cleanText(q.spieg||q.spiegazione||'')}</div>}

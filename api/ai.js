@@ -65,7 +65,7 @@ async function callGemini(apiKey, model, prompt, imageUrls, systemPrompt) {
 
 async function callAnthropic(apiKey, model, prompt, imageUrls, systemPrompt) {
   const content = []
-  for (const url of imageUrls.slice(0, 2)) {
+  for (const url of imageUrls.slice(0, 5)) {
     try {
       const { b64, mime } = await fetchBase64(url)
       const mt = (isPdf(url) || mime === 'application/pdf') ? 'application/pdf' : mime

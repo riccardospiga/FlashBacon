@@ -2,6 +2,15 @@ import React, { useState, useRef, useCallback } from 'react'
 import { supabase } from '../supabase.js'
 import { compressImg, getExt, isImgExt, toast } from '../utils/helpers.js'
 
+const AUDIO_EXTS = ['mp3', 'm4a', 'wav', 'aac', 'ogg', 'flac', 'weba']
+function isYouTubeUrl(url) {
+  return /youtube\.com\/watch|youtu\.be\//.test(url)
+}
+function extractYouTubeId(url) {
+  const m = url.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/)
+  return m ? m[1] : null
+}
+
 /* ── helpers ── */
 async function fileToDataUrl(file) {
   return new Promise((res, rej) => {
@@ -15,10 +24,12 @@ async function fileToDataUrl(file) {
 function ItemChip({ item, onRemove }) {
   const ext = item.type === 'file' ? getExt(item.name) : item.type
   const icon =
-    item.type === 'text' ? '✏️'
-    : item.type === 'url'  ? '🔗'
-    : isImgExt(ext)        ? null
-    : ext === 'pdf'        ? '📄'
+    item.type === 'text'    ? '✏️'
+    : item.type === 'url'   ? '🔗'
+    : item.type === 'youtube' ? '▶️'
+    : item.type === 'audio' ? '🎵'
+    : isImgExt(ext)         ? null
+    : ext === 'pdf'         ? '📄'
     : ext === 'doc' || ext === 'docx' ? '📝'
     : ext === 'ppt' || ext === 'pptx' ? '📊'
     : '📎'
@@ -57,9 +68,13 @@ export default function UploadAIModal({ onClose, materie, utente, onComplete, di
     const newItems = []
     for (const f of Array.from(files)) {
       const ext = getExt(f.name)
-      let preview = null
-      if (isImgExt(ext)) preview = URL.createObjectURL(f)
-      newItems.push({ type: 'file', file: f, name: f.name, ext, preview })
+      if (AUDIO_EXTS.includes(ext)) {
+        newItems.push({ type: 'audio', file: f, name: f.name, ext, preview: null })
+      } else {
+        let preview = null
+        if (isImgExt(ext)) preview = URL.createObjectURL(f)
+        newItems.push({ type: 'file', file: f, name: f.name, ext, preview })
+      }
     }
     setItems(p => [...p, ...newItems])
   }
@@ -74,8 +89,14 @@ export default function UploadAIModal({ onClose, materie, utente, onComplete, di
   function addUrl() {
     const url = urlVal.trim()
     if (!url || !url.startsWith('http')) { setErr('URL non valido'); return }
-    const name = url.replace(/^https?:\/\//, '').split('/')[0]
-    setItems(p => [...p, { type: 'url', url, name }])
+    if (isYouTubeUrl(url)) {
+      const vid = extractYouTubeId(url)
+      const name = 'YouTube — ' + (vid || url.split('/').pop())
+      setItems(p => [...p, { type: 'youtube', url, name, videoId: vid }])
+    } else {
+      const name = url.replace(/^https?:\/\//, '').split('/')[0]
+      setItems(p => [...p, { type: 'url', url, name }])
+    }
     setUrlVal(''); setShowUrl(false); setErr('')
   }
 
@@ -122,6 +143,24 @@ export default function UploadAIModal({ onClose, materie, utente, onComplete, di
           textSources.push(item.text)
         } else if (item.type === 'url') {
           urlSources.push(item.url)
+        } else if (item.type === 'youtube' && item.videoId) {
+          // Fetch YouTube transcript
+          try {
+            const tr = await fetch(`/api/transcript?v=${item.videoId}`)
+            const td = await tr.json()
+            if (td.transcript) textSources.push(`[YouTube: ${item.name}]\n${td.transcript}`)
+            else urlSources.push(item.url)
+          } catch { urlSources.push(item.url) }
+        } else if (item.type === 'audio') {
+          // Transcribe audio via Whisper
+          try {
+            const fd = new FormData()
+            fd.append('file', item.file)
+            const tr = await fetch('/api/transcribe', { method: 'POST', body: fd })
+            const td = await tr.json()
+            if (td.transcript) textSources.push(`[Audio: ${item.name}]\n${td.transcript}`)
+            else textSources.push(`[Audio: ${item.name} — trascrizione non disponibile]`)
+          } catch { textSources.push(`[Audio: ${item.name} — errore trascrizione]`) }
         }
       }
 
@@ -238,7 +277,7 @@ item_indices = indici dei materiali caricati sopra. emoji appropriate alla mater
   }
 
   async function uploadItem(item, materiaId, argomentoId) {
-    if (item.type === 'file') {
+    if (item.type === 'file' || item.type === 'audio') {
       const ext = getExt(item.name)
       const safeName = item.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       let blob = item.file, ct = item.file.type || 'application/octet-stream'
@@ -249,7 +288,7 @@ item_indices = indici dei materiali caricati sopra. emoji appropriate alla mater
       const { data: { publicUrl } } = supabase.storage.from('fonti').getPublicUrl(path)
       await supabase.from('fonti').insert({
         utente_email: utente.email, materia_id: materiaId, argomento_id: argomentoId,
-        nome: item.name, url: publicUrl, tipo: 'file',
+        nome: item.name, url: publicUrl, tipo: item.type === 'audio' ? 'audio' : 'file',
       })
     } else if (item.type === 'text') {
       await supabase.from('fonti').insert({
@@ -260,6 +299,11 @@ item_indices = indici dei materiali caricati sopra. emoji appropriate alla mater
       await supabase.from('fonti').insert({
         utente_email: utente.email, materia_id: materiaId, argomento_id: argomentoId,
         nome: item.name, url: item.url, tipo: 'url',
+      })
+    } else if (item.type === 'youtube') {
+      await supabase.from('fonti').insert({
+        utente_email: utente.email, materia_id: materiaId, argomento_id: argomentoId,
+        nome: item.name, url: item.url, tipo: 'youtube',
       })
     }
   }
@@ -361,11 +405,8 @@ item_indices = indici dei materiali caricati sopra. emoji appropriate alla mater
               {saving ? '…' : 'Aggiungi ✓'}
             </button>
           )}
-          {!directUpload && step === 'confirm' && (
-            <button className="btn-sm primary" onClick={confirmSave} disabled={saving}>
-              {saving ? '…' : 'Salva ✓'}
-            </button>
-          )}
+          {/* No duplicate Salva button in header for confirm step — only the bottom btn-primary is shown */}
+          {!directUpload && step === 'confirm' && <div style={{width:70}}/>}
           {(!directUpload && (step === 'analyzing' || (step === 'upload' && !items.length))) && <div style={{width:70}}/>}
           {(directUpload && !items.length) && <div style={{width:70}}/>}
         </div>
@@ -379,7 +420,7 @@ item_indices = indici dei materiali caricati sopra. emoji appropriate alla mater
               onDrop={onDrop} onDragOver={onDragOver} onDragLeave={onDragLeave}
               onClick={() => fileRef.current?.click()}
             >
-              <input ref={fileRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt"
+              <input ref={fileRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.mp3,.m4a,.wav,.aac,.ogg"
                 style={{display:'none'}} onChange={e => addFiles(e.target.files)}/>
               <div className="up-drop-icon">
                 <svg width="36" height="36" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
@@ -391,7 +432,7 @@ item_indices = indici dei materiali caricati sopra. emoji appropriate alla mater
               <p className="up-drop-title">Trascina qui i file</p>
               <p className="up-drop-sub">o clicca per selezionare</p>
               <div className="up-drop-formats">
-                <span>Immagini</span><span>PDF</span><span>Word</span><span>PowerPoint</span><span>Excel</span>
+                <span>Immagini</span><span>PDF</span><span>Word</span><span>PPT</span><span>Audio</span>
               </div>
             </div>
 
@@ -401,7 +442,7 @@ item_indices = indici dei materiali caricati sopra. emoji appropriate alla mater
                 ✏️ Testo
               </button>
               <button className={`up-extra-btn${showUrl ? ' active' : ''}`} onClick={() => { setShowUrl(p => !p); setShowText(false) }}>
-                🔗 Link web
+                🔗 Link / YouTube
               </button>
             </div>
 

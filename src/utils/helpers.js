@@ -57,5 +57,17 @@ export function isImgExt(ext) {
 }
 
 export function cleanText(t) {
-  return (t || '').replace(/\*\*/g, '').replace(/^\*+|\*+$/gm, '').replace(/^#+\s*/gm, '').trim()
+  return (t || '')
+    .replace(/\*\*(.+?)\*\*/gs, '$1')   // bold **text** → text
+    .replace(/\*(.+?)\*/gs, '$1')        // italic *text* → text
+    .replace(/^#+\s*/gm, '')             // headings ## → ''
+    .trim()
+}
+
+export function markdownToHtml(t) {
+  return (t || '')
+    .replace(/\*\*(.+?)\*\*/gs, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/gs, '<em>$1</em>')
+    .replace(/^#+\s*/gm, '')
+    .trim()
 }

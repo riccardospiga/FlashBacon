@@ -42,6 +42,28 @@ const STATUS_MSGS = {
   finishing:    '✅ Unificazione risultati...',
 }
 
+async function readSSE(response) {
+  const reader  = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = '', fullText = '', meta = {}
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const lines = buf.split('\n'); buf = lines.pop()
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      try {
+        const d = JSON.parse(line.slice(6))
+        if (d.error) throw new Error(d.error)
+        if (d.chunk) fullText += d.chunk
+        if (d.done) meta = d
+      } catch(e) { if (!e.message?.includes('JSON')) throw e }
+    }
+  }
+  return meta.result || fullText
+}
+
 function isYouTubeUrl(url) {
   return /youtube\.com\/watch|youtu\.be\//.test(url)
 }
@@ -332,7 +354,7 @@ OUTPUT FORMAT:
           })
         })
         if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Errore AI') }
-        return (await res.json()).result
+        return readSSE(res)
       }
 
       let result

@@ -438,12 +438,36 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     return base
   }
 
+  /* ── SSE stream reader — reads /api/ai SSE response ── */
+  async function readAIStream(response,onChunk){
+    const reader=response.body.getReader()
+    const decoder=new TextDecoder()
+    let buf='',fullText='',meta={}
+    while(true){
+      const{done,value}=await reader.read()
+      if(done)break
+      buf+=decoder.decode(value,{stream:true})
+      const lines=buf.split('\n');buf=lines.pop()
+      for(const line of lines){
+        if(!line.startsWith('data: '))continue
+        try{
+          const d=JSON.parse(line.slice(6))
+          if(d.error)throw new Error(d.error)
+          if(d.chunk){fullText+=d.chunk;onChunk?.(d.chunk)}
+          if(d.done)meta=d
+        }catch(e){if(e.message!=='Unexpected end of JSON input'&&!e.message.includes('JSON'))throw e}
+      }
+    }
+    if(meta.tokensUsed)setTokenUsage(p=>({...p,tokensUsed:meta.tokensUsed,tokenLimit:meta.tokenLimit||p.tokenLimit,tokenResetDate:meta.tokenResetDate||p.tokenResetDate}))
+    return meta.result||fullText
+  }
+
   /* ── AI CALL ── */
-  async function callAI(prompt,settings={},onProgress=null){
+  async function callAI(prompt,settings={},onProgress=null,onChunk=null){
     const{images,textSources,urlSources,fileNames}=prepareFonti()
     const systemContext=buildSystemContext()
 
-    const doFetch=async(p,imgs,extraText=[])=>{
+    const doFetch=async(p,imgs,extraText=[],chunkCb=null)=>{
       const res=await fetch('/api/ai',{
         method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({prompt:p,images:imgs,textSources:[...textSources,...extraText],urlSources,settings,systemContext,fileNames,userEmail:utente?.email||''})
@@ -453,26 +477,24 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
         if(e.tokenLimitReached)setTokenUsage(p=>({...p,tokensUsed:e.tokensUsed||p.tokensUsed,tokenLimit:e.tokenLimit||p.tokenLimit,tokenResetDate:e.tokenResetDate||p.tokenResetDate}))
         throw new Error(e.error||`Errore ${res.status}`)
       }
-      const d=await res.json()
-      if(d.tokensUsed)setTokenUsage(p=>({...p,tokensUsed:d.tokensUsed,tokenLimit:d.tokenLimit||p.tokenLimit,tokenResetDate:d.tokenResetDate||p.tokenResetDate}))
-      return d.result
+      return readAIStream(res,chunkCb)
     }
 
     const BATCH=8
-    if(images.length<=BATCH) return doFetch(prompt,images)
+    if(images.length<=BATCH) return doFetch(prompt,images,[],onChunk)
 
-    // Batch mode
+    // Batch mode — stream only the final merge step
     const batches=[]
     for(let i=0;i<images.length;i+=BATCH)batches.push(images.slice(i,i+BATCH))
     const partials=[]
     for(let i=0;i<batches.length;i++){
       onProgress?.(`Analisi batch ${i+1}/${batches.length}…`)
       const ctx=partials.length>0?[`Risultati dai batch precedenti:\n${partials.join('\n\n')}`]:[]
-      partials.push(await doFetch(prompt,batches[i],ctx))
+      partials.push(await doFetch(prompt,batches[i],ctx,null))
     }
     onProgress?.('Unificazione risultati…')
     const mergePrompt=`Combina questi ${batches.length} risultati parziali in un unico output coerente nel formato richiesto. Rimuovi duplicati. Restituisci solo il contenuto finale nel formato corretto, senza testo aggiuntivo.\n\n${partials.map((r,i)=>`[Batch ${i+1}]:\n${r}`).join('\n\n---\n\n')}`
-    return doFetch(mergePrompt,[])
+    return doFetch(mergePrompt,[],[],onChunk)
   }
 
   /* ── BUILD PROMPTS ── */
@@ -549,18 +571,27 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   async function sendChat(){
     if(!chatInput.trim()||chatLoading)return
     const msg=chatInput.trim();setChatInput('')
-    const newMsgs=[...chatMsgs,{role:'user',content:msg}]
-    setChatMsgs(newMsgs);setChatLoading(true)
+    // Add user message + empty AI placeholder for streaming
+    setChatMsgs(prev=>[...prev,{role:'user',content:msg},{role:'ai',content:''}])
+    setChatLoading(true)
     try{
       const a=argomenti.find(x=>x.id===curArgId),m=materie.find(x=>x.id===curMateriaId)
       const history=chatMsgs.slice(-8).map(x=>`${x.role==='user'?'Tu':'AI'}: ${x.content}`).join('\n')
       const lenDesc=['breve','normale','dettagliata'][(chatLength||2)-1]
       const prompt=`Argomento: "${a?.nome}" — Materia: "${m?.nome}"\n\nStorico:\n${history}\n\nTu: ${msg}\n\nRispondi in italiano con risposta ${lenDesc}.`
-      const result=await callAI(prompt,{length:chatLength})
-      const updated=[...newMsgs,{role:'ai',content:result}]
-      setChatMsgs(updated)
+      // onChunk: append each chunk to the last message (typewriter effect)
+      const onChunk=chunk=>setChatMsgs(prev=>{
+        const msgs=[...prev]
+        msgs[msgs.length-1]={role:'ai',content:msgs[msgs.length-1].content+chunk}
+        return msgs
+      })
+      const result=await callAI(prompt,{length:chatLength},null,onChunk)
+      // Ensure final state is consistent and save to storico
+      setChatMsgs(prev=>{const msgs=[...prev];msgs[msgs.length-1]={role:'ai',content:result};return msgs})
       await saveStorico('chat',`Tu: ${msg}\nAI: ${result}`)
-    }catch(e){setChatMsgs(p=>[...p,{role:'ai',content:'❌ '+e.message}])}
+    }catch(e){
+      setChatMsgs(prev=>{const msgs=[...prev];msgs[msgs.length-1]={role:'ai',content:'❌ '+e.message};return msgs})
+    }
     setChatLoading(false)
   }
   useEffect(()=>{chatEndRef.current?.scrollIntoView({behavior:'smooth'})},[chatMsgs])
@@ -629,10 +660,9 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       const systemContext=buildSystemContext()
       const res=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,images,textSources,urlSources,settings:{length:2},systemContext,fileNames,userEmail:utente?.email||''})})
       if(!res.ok)return
-      const d=await res.json()
-      if(d.tokensUsed)setTokenUsage(p=>({...p,tokensUsed:d.tokensUsed,tokenLimit:d.tokenLimit||p.tokenLimit,tokenResetDate:d.tokenResetDate||p.tokenResetDate}))
+      const quizResult=await readAIStream(res,null)
       // Save to storico for the argomento (Lab)
-      await supabase.from('storico').insert({utente_email:utente.email,materia_id:r.materia_id,argomento_id:argId,tipo:mode==='multipla'?'quiz':'quiz-aperta',contenuto:d.result})
+      await supabase.from('storico').insert({utente_email:utente.email,materia_id:r.materia_id,argomento_id:argId,tipo:mode==='multipla'?'quiz':'quiz-aperta',contenuto:quizResult})
       showAIDone('✅ Quiz ripasso generato e salvato nel Lab!')
     }catch(e){console.warn('generateRipassoAndSave:',e.message)}
   }
@@ -689,10 +719,9 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       const prompt=`Domanda: ${domanda}\nRisposta attesa: ${attesa}\nRisposta studente: ${risposta}\n\nDai un feedback breve (massimo 3 frasi): cosa è corretto, cosa migliorare, voto su 10.`
       const res=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({prompt,images:[],textSources:[],urlSources:[],settings:{length:1,maxTokens:300},systemContext:EVAL_SYS,fileNames:'',userEmail:utente?.email||''})})
-      const d=await res.json()
-      if(d.tokensUsed)setTokenUsage(p=>({...p,tokensUsed:d.tokensUsed,tokenLimit:d.tokenLimit||p.tokenLimit,tokenResetDate:d.tokenResetDate||p.tokenResetDate}))
-      const text=(d.result||'Errore nella valutazione.').replace(/\*+/g,'')
-      setOpenFeedback(p=>({...p,[idx]:{loading:false,text}}))
+      if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.error||`Errore ${res.status}`)}
+      const result=await readAIStream(res,null)
+      setOpenFeedback(p=>({...p,[idx]:{loading:false,text:result.replace(/\*+/g,'')}}))
     }catch(e){
       setOpenFeedback(p=>({...p,[idx]:{loading:false,text:'❌ '+e.message}}))
     }
@@ -711,10 +740,9 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       const prompt=`Valuta queste ${quizData.length} risposte. Per ognuna scrivi 1-2 frasi di feedback e voto su 10. Inizia ogni valutazione con "Domanda X:" su una riga.\n\n${pairs}`
       const res=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},
         body:JSON.stringify({prompt,images:[],textSources:[],urlSources:[],settings:{length:2,maxTokens:600},systemContext:EVAL_SYS,fileNames:'',userEmail:utente?.email||''})})
-      const d=await res.json()
-      if(d.tokensUsed)setTokenUsage(p=>({...p,tokensUsed:d.tokensUsed,tokenLimit:d.tokenLimit||p.tokenLimit,tokenResetDate:d.tokenResetDate||p.tokenResetDate}))
-      const text=(d.result||'Errore.').replace(/\*+/g,'')
-      setOpenFinalEval({loading:false,text})
+      if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.error||`Errore ${res.status}`)}
+      const result=await readAIStream(res,null)
+      setOpenFinalEval({loading:false,text:result.replace(/\*+/g,'')})
     }catch(e){
       setOpenFinalEval({loading:false,text:'❌ '+e.message})
     }

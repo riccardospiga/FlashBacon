@@ -1,4 +1,4 @@
-// api/ai.js — FlashBacon v5 (CommonJS)
+// api/ai.js — FlashBacon v5 streaming (CommonJS)
 const { createClient } = require('@supabase/supabase-js')
 const crypto = require('crypto')
 
@@ -7,7 +7,6 @@ const SECRET = Buffer.from(process.env.ENCRYPTION_SECRET, 'hex')
 const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.VITE_SUPABASE_ANON_KEY)
 
 const TOKEN_LIMITS = { owner: 150000, beta: 10000 }
-const OWNER_EMAIL  = 'riccarspiga@gmail.com'
 
 function decrypt(enc, iv, tag) {
   const d = crypto.createDecipheriv(ALGO, SECRET, Buffer.from(iv, 'base64'))
@@ -33,9 +32,9 @@ function parseDataUrl(dataUrl) {
 async function fetchBase64(url) {
   const res = await fetch(url)
   if (!res.ok) throw new Error(`Download fallito: ${res.status}`)
-  const buf  = await res.arrayBuffer()
-  const b64  = Buffer.from(buf).toString('base64')
-  const ct   = res.headers.get('content-type') || 'image/jpeg'
+  const buf = await res.arrayBuffer()
+  const b64 = Buffer.from(buf).toString('base64')
+  const ct  = res.headers.get('content-type') || 'image/jpeg'
   return { b64, mime: ct.split(';')[0].trim() }
 }
 
@@ -53,10 +52,101 @@ async function fetchUrlText(url) {
 }
 
 function buildLengthDesc(length) {
-  return (['breve e concisa', 'di media lunghezza', 'lunga e dettagliata'])[( length || 2) - 1]
+  return (['breve e concisa', 'di media lunghezza', 'lunga e dettagliata'])[(length || 2) - 1]
 }
 
-async function callGemini(apiKey, model, prompt, imageUrls, systemPrompt, maxTokens=4096) {
+// ─── SSE helper ───────────────────────────────────────────────────────────────
+function sseChunk(res, text) {
+  res.write(`data: ${JSON.stringify({ chunk: text })}\n\n`)
+}
+
+// ─── Read an SSE / NDJSON stream from a provider and forward chunks ──────────
+async function readOpenAIStream(response, res) {
+  const reader   = response.body.getReader()
+  const decoder  = new TextDecoder()
+  let buf = '', fullText = '', tokens = 0
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const lines = buf.split('\n'); buf = lines.pop()
+    for (const line of lines) {
+      if (line.trim() === 'data: [DONE]') continue
+      if (!line.startsWith('data: ')) continue
+      try {
+        const d = JSON.parse(line.slice(6))
+        const text = d.choices?.[0]?.delta?.content || ''
+        if (text) { fullText += text; sseChunk(res, text) }
+        if (d.usage?.total_tokens) tokens = d.usage.total_tokens
+      } catch {}
+    }
+  }
+  return { text: fullText, tokens }
+}
+
+// ─── Provider streaming functions ────────────────────────────────────────────
+async function streamAnthropic(apiKey, model, prompt, imageUrls, systemPrompt, maxTokens, res) {
+  const content = []
+  for (const url of imageUrls.slice(0, 5)) {
+    try {
+      let b64, mime
+      if (isDataUrl(url)) { const p = parseDataUrl(url); if (!p) continue; b64 = p.b64; mime = p.mime }
+      else { const f = await fetchBase64(url); b64 = f.b64; mime = f.mime }
+      const mt = mime === 'application/pdf' ? 'application/pdf' : mime
+      content.push({ type: mt === 'application/pdf' ? 'document' : 'image', source: { type: 'base64', media_type: mt, data: b64 } })
+    } catch(e) { console.warn('Skipped:', e.message) }
+  }
+  content.push({ type: 'text', text: prompt })
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model, max_tokens: maxTokens, system: systemPrompt, messages: [{ role: 'user', content }], stream: true })
+  })
+  if (!response.ok) { const d = await response.json(); throw new Error(d.error?.message || 'Anthropic error') }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = '', fullText = '', inputTok = 0, outputTok = 0
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const lines = buf.split('\n'); buf = lines.pop()
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      try {
+        const d = JSON.parse(line.slice(6))
+        if (d.type === 'content_block_delta' && d.delta?.text) {
+          fullText += d.delta.text; sseChunk(res, d.delta.text)
+        }
+        if (d.type === 'message_start' && d.message?.usage) inputTok = d.message.usage.input_tokens || 0
+        if (d.type === 'message_delta' && d.usage)          outputTok = d.usage.output_tokens || 0
+      } catch {}
+    }
+  }
+  return { text: fullText, tokens: inputTok + outputTok }
+}
+
+async function streamOpenAI(apiKey, model, prompt, imageUrls, systemPrompt, maxTokens, res) {
+  const content = []
+  for (const url of imageUrls) {
+    if (isImage(url)) content.push({ type: 'image_url', image_url: { url, detail: 'high' } })
+  }
+  content.push({ type: 'text', text: prompt })
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content }], stream: true, stream_options: { include_usage: true } })
+  })
+  if (!response.ok) { const d = await response.json(); throw new Error(d.error?.message || 'OpenAI error') }
+  return readOpenAIStream(response, res)
+}
+
+async function streamGemini(apiKey, model, prompt, imageUrls, systemPrompt, maxTokens, res) {
   const parts = []
   for (const url of imageUrls) {
     if (isDataUrl(url)) {
@@ -69,116 +159,75 @@ async function callGemini(apiKey, model, prompt, imageUrls, systemPrompt, maxTok
     }
   }
   parts.push({ text: systemPrompt + '\n\n' + prompt })
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts }], generationConfig: { maxOutputTokens: maxTokens } }) }
   )
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
-  const text   = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
-  const tokens = (data.usageMetadata?.promptTokenCount || 0) + (data.usageMetadata?.candidatesTokenCount || 0)
-  return { text, tokens }
-}
+  if (!response.ok) { const d = await response.json(); throw new Error(d.error?.message || 'Gemini error') }
 
-async function callAnthropic(apiKey, model, prompt, imageUrls, systemPrompt, maxTokens=4096) {
-  const content = []
-  for (const url of imageUrls.slice(0, 5)) {
-    try {
-      let b64, mime
-      if (isDataUrl(url)) {
-        const parsed = parseDataUrl(url)
-        if (!parsed) continue
-        b64 = parsed.b64; mime = parsed.mime
-      } else {
-        const fetched = await fetchBase64(url)
-        b64 = fetched.b64; mime = fetched.mime
-      }
-      const mt = mime === 'application/pdf' ? 'application/pdf' : mime
-      content.push({ type: mt === 'application/pdf' ? 'document' : 'image', source: { type: 'base64', media_type: mt, data: b64 } })
-    } catch(e) { console.warn('Skipped:', e.message) }
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buf = '', fullText = '', tokens = 0
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buf += decoder.decode(value, { stream: true })
+    const lines = buf.split('\n'); buf = lines.pop()
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) continue
+      try {
+        const d = JSON.parse(line.slice(6))
+        const text = d.candidates?.[0]?.content?.parts?.[0]?.text || ''
+        if (text) { fullText += text; sseChunk(res, text) }
+        if (d.usageMetadata) tokens = (d.usageMetadata.promptTokenCount || 0) + (d.usageMetadata.candidatesTokenCount || 0)
+      } catch {}
+    }
   }
-  content.push({ type: 'text', text: prompt })
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model, max_tokens: maxTokens, system: systemPrompt, messages: [{ role: 'user', content }] })
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
-  const text   = data.content?.[0]?.text || ''
-  const tokens = (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0)
-  return { text, tokens }
+  return { text: fullText, tokens }
 }
 
-async function callOpenAI(apiKey, model, prompt, imageUrls, systemPrompt, maxTokens=4096) {
-  const content = []
-  for (const url of imageUrls) {
-    if (isImage(url)) content.push({ type: 'image_url', image_url: { url, detail: 'high' } })
-  }
-  content.push({ type: 'text', text: prompt })
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content }] })
-  })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
-  const text   = data.choices?.[0]?.message?.content || ''
-  const tokens = data.usage?.total_tokens || 0
-  return { text, tokens }
-}
-
-async function callMistral(apiKey, model, prompt, imageUrls, systemPrompt, maxTokens=4096) {
+async function streamMistral(apiKey, model, prompt, imageUrls, systemPrompt, maxTokens, res) {
   const content = []
   for (const url of imageUrls) {
     if (isImage(url)) content.push({ type: 'image_url', image_url: url })
   }
   content.push({ type: 'text', text: prompt })
-  const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
+
+  const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content }] })
+    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content }], stream: true })
   })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
-  const text   = data.choices?.[0]?.message?.content || ''
-  const tokens = data.usage?.total_tokens || 0
-  return { text, tokens }
+  if (!response.ok) { const d = await response.json(); throw new Error(d.error?.message || 'Mistral error') }
+  return readOpenAIStream(response, res)
 }
 
-async function callDeepSeek(apiKey, model, prompt, systemPrompt, maxTokens=4096) {
-  const res = await fetch('https://api.deepseek.com/chat/completions', {
+async function streamDeepSeek(apiKey, model, prompt, systemPrompt, maxTokens, res) {
+  const response = await fetch('https://api.deepseek.com/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }] })
+    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }], stream: true })
   })
-  const data = await res.json()
-  if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
-  const text   = data.choices?.[0]?.message?.content || ''
-  const tokens = data.usage?.total_tokens || 0
-  return { text, tokens }
+  if (!response.ok) { const d = await response.json(); throw new Error(d.error?.message || 'DeepSeek error') }
+  return readOpenAIStream(response, res)
 }
 
+// ─── Token helpers ────────────────────────────────────────────────────────────
 async function getTokenProfile(userEmail) {
-  const { data, error } = await supabase
-    .from('profili')
-    .select('id, token_usati, token_reset_date, ruolo')
-    .eq('email', userEmail)
-    .single()
+  const { data, error } = await supabase.from('profili').select('id, token_usati, token_reset_date, ruolo').eq('email', userEmail).single()
   if (error || !data) return null
   return data
 }
 
 async function checkAndUpdateTokens(userEmail, tokensUsed) {
   if (!userEmail) return { allowed: true, tokensUsed: 0, limit: 0, resetDate: null }
-
   const profile = await getTokenProfile(userEmail)
   if (!profile) return { allowed: true, tokensUsed: 0, limit: 0, resetDate: null }
 
   const role  = profile.ruolo || 'beta'
   const limit = TOKEN_LIMITS[role] ?? TOKEN_LIMITS.beta
-
-  // Reset if 30+ days since reset date
   const resetDate  = profile.token_reset_date ? new Date(profile.token_reset_date) : new Date()
   const now        = new Date()
   const daysSince  = Math.floor((now - resetDate) / (1000 * 60 * 60 * 24))
@@ -186,79 +235,69 @@ async function checkAndUpdateTokens(userEmail, tokensUsed) {
 
   if (daysSince >= 30) {
     currentUsed = 0
-    await supabase
-      .from('profili')
-      .update({ token_usati: 0, token_reset_date: now.toISOString().split('T')[0] })
-      .eq('id', profile.id)
+    await supabase.from('profili').update({ token_usati: 0, token_reset_date: now.toISOString().split('T')[0] }).eq('id', profile.id)
   }
 
-  // Check limit before call
   if (currentUsed >= limit) {
-    const nextReset = new Date(resetDate)
-    nextReset.setDate(nextReset.getDate() + 30)
+    const nextReset = new Date(resetDate); nextReset.setDate(nextReset.getDate() + 30)
     return { allowed: false, tokensUsed: currentUsed, limit, resetDate: nextReset.toISOString().split('T')[0] }
   }
 
-  // Update after call
   if (tokensUsed > 0) {
-    await supabase
-      .from('profili')
-      .update({ token_usati: currentUsed + tokensUsed })
-      .eq('id', profile.id)
+    await supabase.from('profili').update({ token_usati: currentUsed + tokensUsed }).eq('id', profile.id)
   }
 
-  const nextReset = new Date(daysSince >= 30 ? now : resetDate)
-  nextReset.setDate(nextReset.getDate() + 30)
-  return {
-    allowed: true,
-    tokensUsed: currentUsed + tokensUsed,
-    limit,
-    resetDate: nextReset.toISOString().split('T')[0]
-  }
+  const nextReset = new Date(daysSince >= 30 ? now : resetDate); nextReset.setDate(nextReset.getDate() + 30)
+  return { allowed: true, tokensUsed: currentUsed + tokensUsed, limit, resetDate: nextReset.toISOString().split('T')[0] }
 }
 
+// ─── Handler ──────────────────────────────────────────────────────────────────
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
+
   try {
     const { prompt, images = [], textSources = [], urlSources = [], settings = {}, systemContext = '', fileNames = '', userEmail = '' } = req.body
     if (!prompt) return res.status(400).json({ error: 'Prompt mancante' })
     const maxTokens = Math.min(settings.maxTokens || 4096, 4096)
 
-    // Pre-call token check (pass 0 to just check, not update)
+    // Pre-call token check — returns JSON error (before SSE headers set)
     if (userEmail) {
       const pre = await checkAndUpdateTokens(userEmail, 0)
       if (!pre.allowed) {
         return res.status(429).json({
           error: `Limite token raggiunto (${pre.tokensUsed.toLocaleString('it')} / ${pre.limit.toLocaleString('it')}). Reset il ${pre.resetDate}.`,
-          tokenLimitReached: true,
-          tokensUsed: pre.tokensUsed,
-          tokenLimit: pre.limit,
-          tokenResetDate: pre.resetDate
+          tokenLimitReached: true, tokensUsed: pre.tokensUsed, tokenLimit: pre.limit, tokenResetDate: pre.resetDate
         })
       }
     }
 
     // Fetch URL sources as text
-    const urlTexts = await Promise.all(urlSources.map(fetchUrlText))
+    const urlTexts  = await Promise.all(urlSources.map(fetchUrlText))
     const extraText = [...textSources, ...urlTexts].filter(Boolean).join('\n\n---\n\n')
 
     // Build system prompt
     const lengthDesc = buildLengthDesc(settings.length)
     let sysPrompt = systemContext || 'Sei FlashBacon AI, un assistente di studio. Rispondi in italiano.'
     sysPrompt += ` La risposta deve essere ${lengthDesc}.`
-    if (fileNames) sysPrompt += ` Le fonti disponibili sono: ${fileNames}.`
-    if (extraText) sysPrompt += `\n\nContenuto testuale delle fonti:\n${extraText}`
+    if (fileNames)  sysPrompt += ` Le fonti disponibili sono: ${fileNames}.`
+    if (extraText)  sysPrompt += `\n\nContenuto testuale delle fonti:\n${extraText}`
 
     const prov   = await getActiveProvider()
     const apiKey = decrypt(prov.api_key_encrypted, prov.iv, prov.auth_tag)
 
+    // ── Set SSE headers before first write ───────────────────────────────────
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8')
+    res.setHeader('Cache-Control', 'no-cache, no-transform')
+    res.setHeader('X-Accel-Buffering', 'no')
+    res.setHeader('Connection', 'keep-alive')
+
     let resp = { text: '', tokens: 0 }
     switch (prov.provider) {
-      case 'anthropic': resp = await callAnthropic(apiKey, prov.modello, prompt, images, sysPrompt, maxTokens); break
-      case 'openai':    resp = await callOpenAI(apiKey, prov.modello, prompt, images, sysPrompt, maxTokens);    break
-      case 'google':    resp = await callGemini(apiKey, prov.modello, prompt, images, sysPrompt, maxTokens);    break
-      case 'mistral':   resp = await callMistral(apiKey, prov.modello, prompt, images, sysPrompt, maxTokens);   break
-      case 'deepseek':  resp = await callDeepSeek(apiKey, prov.modello, prompt, sysPrompt, maxTokens);          break
+      case 'anthropic': resp = await streamAnthropic(apiKey, prov.modello, prompt, images, sysPrompt, maxTokens, res); break
+      case 'openai':    resp = await streamOpenAI(apiKey, prov.modello, prompt, images, sysPrompt, maxTokens, res);    break
+      case 'google':    resp = await streamGemini(apiKey, prov.modello, prompt, images, sysPrompt, maxTokens, res);    break
+      case 'mistral':   resp = await streamMistral(apiKey, prov.modello, prompt, images, sysPrompt, maxTokens, res);   break
+      case 'deepseek':  resp = await streamDeepSeek(apiKey, prov.modello, prompt, sysPrompt, maxTokens, res);          break
       default: throw new Error(`Provider sconosciuto: ${prov.provider}`)
     }
 
@@ -269,9 +308,16 @@ module.exports = async function handler(req, res) {
       tokenInfo = { tokensUsed: post.tokensUsed, tokenLimit: post.limit, tokenResetDate: post.resetDate }
     }
 
-    res.status(200).json({ result: resp.text, ...tokenInfo })
+    // Final done event — includes full text for non-streaming consumers
+    res.write(`data: ${JSON.stringify({ done: true, result: resp.text, ...tokenInfo })}\n\n`)
+    res.end()
+
   } catch(e) {
     console.error('[ai.js]', e.message)
-    res.status(500).json({ error: e.message })
+    if (res.headersSent) {
+      try { res.write(`data: ${JSON.stringify({ error: e.message, done: true })}\n\n`); res.end() } catch {}
+    } else {
+      res.status(500).json({ error: e.message })
+    }
   }
 }

@@ -3,6 +3,46 @@ import { supabase } from '../supabase.js'
 import { compressImg, getExt, isImgExt, toast } from '../utils/helpers.js'
 
 const AUDIO_EXTS = ['mp3', 'm4a', 'wav', 'aac', 'ogg', 'flac', 'weba']
+const VISION_PROVIDERS = ['anthropic', 'openai', 'google']
+
+export const MATERIE_BASE = [
+  "Matematica","Fisica","Chimica","Biologia","Storia","Geografia",
+  "Italiano","Latino","Greco","Inglese","Filosofia","Arte",
+  "Musica","Educazione Fisica","Religione","Scienze",
+  "Letteratura Italiana","Letteratura Inglese","Letteratura Latina",
+  "Storia dell'Arte","Storia della Filosofia","Matematica Avanzata",
+  "Fisica Moderna","Chimica Organica","Chimica Inorganica",
+  "Biologia Molecolare","Anatomia","Fisiologia","Ecologia","Genetica",
+  "Astronomia","Geologia","Economia","Diritto","Psicologia","Sociologia",
+  "Antropologia","Pedagogia","Logica","Statistica","Informatica",
+  "Analisi Matematica","Algebra Lineare","Geometria","Calcolo",
+  "Fisica Teorica","Chimica Fisica","Biochimica","Microbiologia",
+  "Neuroscienze","Immunologia","Farmacologia","Patologia",
+  "Medicina","Giurisprudenza","Economia Politica","Macroeconomia",
+  "Microeconomia","Marketing","Management","Contabilità",
+  "Architettura","Urbanistica","Ingegneria","Elettronica",
+  "Meccanica","Termodinamica","Idraulica","Topografia",
+  "Linguistica","Semiotica","Estetica","Etica","Metafisica",
+  "Epistemologia","Storia Medievale","Storia Moderna","Storia Contemporanea",
+  "Storia Antica","Archeologia","Paleontologia","Numismatica",
+  "Storia della Musica","Storia del Cinema","Teatro","Danza",
+  "Francese","Spagnolo","Tedesco","Russo","Cinese","Giapponese","Arabo",
+  "Programmazione","Algoritmi","Intelligenza Artificiale",
+  "Machine Learning","Data Science","Cybersecurity","Reti",
+  "Sistemi Operativi","Database","Sviluppo Web","Sviluppo Mobile",
+  "Robotica","Automazione","Elettrotecnica","Telecomunicazioni",
+  "Biotecnologie","Nanotecnologie","Energie Rinnovabili",
+  "Ambiente e Sostenibilità","Tecnologia"
+]
+
+const STATUS_MSGS = {
+  uploading:    '📤 Caricamento file...',
+  transcribing: '🎤 Trascrizione audio...',
+  analyzing:    '🔍 Analisi in corso...',
+  batching:     '📊 Elaborazione risultati...',
+  finishing:    '✅ Quasi pronto...',
+}
+
 function isYouTubeUrl(url) {
   return /youtube\.com\/watch|youtu\.be\//.test(url)
 }
@@ -11,7 +51,6 @@ function extractYouTubeId(url) {
   return m ? m[1] : null
 }
 
-/* ── helpers ── */
 async function fileToDataUrl(file) {
   return new Promise((res, rej) => {
     const r = new FileReader()
@@ -21,15 +60,36 @@ async function fileToDataUrl(file) {
   })
 }
 
+async function compressImgToDataUrl(file) {
+  return new Promise(res => {
+    const img = new Image()
+    const objectUrl = URL.createObjectURL(file)
+    img.onload = () => {
+      const M = 1024
+      let { width: w, height: h } = img
+      if (w > M || h > M) { const r = Math.min(M / w, M / h); w = Math.round(w * r); h = Math.round(h * r) }
+      const c = document.createElement('canvas')
+      c.width = w; c.height = h
+      c.getContext('2d').drawImage(img, 0, 0, w, h)
+      c.toBlob(b => {
+        const reader = new FileReader()
+        reader.onload = e2 => { res(e2.target.result); URL.revokeObjectURL(objectUrl) }
+        reader.readAsDataURL(b)
+      }, 'image/jpeg', 0.6)
+    }
+    img.src = objectUrl
+  })
+}
+
 function ItemChip({ item, onRemove }) {
   const ext = item.type === 'file' ? getExt(item.name) : item.type
   const icon =
-    item.type === 'text'    ? '✏️'
-    : item.type === 'url'   ? '🔗'
+    item.type === 'text'      ? '✏️'
+    : item.type === 'url'     ? '🔗'
     : item.type === 'youtube' ? '▶️'
-    : item.type === 'audio' ? '🎵'
-    : isImgExt(ext)         ? null
-    : ext === 'pdf'         ? '📄'
+    : item.type === 'audio'   ? '🎵'
+    : isImgExt(ext)           ? null
+    : ext === 'pdf'           ? '📄'
     : ext === 'doc' || ext === 'docx' ? '📝'
     : ext === 'ppt' || ext === 'pptx' ? '📊'
     : '📎'
@@ -48,19 +108,24 @@ function ItemChip({ item, onRemove }) {
 }
 
 /* ══════ MAIN COMPONENT ══════ */
-// directUpload mode: skips AI analysis, uploads straight to curArgId/curMateriaId
-export default function UploadAIModal({ onClose, materie, utente, onComplete, directUpload = false, curMateriaId, curArgId }) {
-  const [items, setItems]           = useState([])
-  const [step, setStep]             = useState('upload')   // 'upload' | 'analyzing' | 'confirm'
-  const [dragOver, setDragOver]     = useState(false)
-  const [showText, setShowText]     = useState(false)
-  const [showUrl, setShowUrl]       = useState(false)
-  const [textVal, setTextVal]       = useState('')
-  const [urlVal, setUrlVal]         = useState('')
-  const [proposal, setProposal]     = useState(null)       // editProposal
-  const [saving, setSaving]         = useState(false)
-  const [err, setErr]               = useState('')
+export default function UploadAIModal({
+  onClose, materie, utente, onComplete,
+  directUpload = false, curMateriaId, curArgId
+}) {
+  const [items, setItems]         = useState([])
+  const [step, setStep]           = useState('upload')
+  const [dragOver, setDragOver]   = useState(false)
+  const [showText, setShowText]   = useState(false)
+  const [showUrl, setShowUrl]     = useState(false)
+  const [textVal, setTextVal]     = useState('')
+  const [urlVal, setUrlVal]       = useState('')
+  const [proposal, setProposal]   = useState(null)
+  const [saving, setSaving]       = useState(false)
+  const [err, setErr]             = useState('')
   const [mergePickerFor, setMergePickerFor] = useState(null)
+  const [analyzeStatus, setAnalyzeStatus]   = useState('')
+  const [originalProposal, setOriginalProposal] = useState(null)
+  const [proposalDiverged, setProposalDiverged] = useState(false)
   const fileRef = useRef()
 
   /* ── Add items ── */
@@ -122,49 +187,107 @@ export default function UploadAIModal({ onClose, materie, utente, onComplete, di
   const onDragOver = e => { e.preventDefault(); setDragOver(true) }
   const onDragLeave = () => setDragOver(false)
 
-  /* ── Analyze ── */
+  /* ── Provider-aware AI analysis ── */
   async function analyze() {
     if (!items.length) { setErr('Aggiungi almeno un file o testo'); return }
-    setErr(''); setStep('analyzing')
+    setErr(''); setStep('analyzing'); setAnalyzeStatus('uploading')
 
     try {
-      const images = [], textSources = [], urlSources = []
+      // 1. Detect active provider
+      const { data: provData } = await supabase
+        .from('ai_providers').select('provider').eq('attivo', true).single()
+      const providerName = provData?.provider || 'anthropic'
+      const supportsImages = VISION_PROVIDERS.includes(providerName)
 
-      for (const item of items) {
-        if (item.type === 'file') {
-          const ext = getExt(item.name)
-          if (isImgExt(ext) || ext === 'pdf') {
-            const dataUrl = await fileToDataUrl(item.file)
-            images.push(dataUrl)
-          } else {
-            urlSources.push('[documento: ' + item.name + ']')
+      // Working copy of items (may be augmented with preUploadedUrl)
+      const workItems = items.map(i => ({ ...i }))
+
+      const images = []        // base64 data URLs (vision providers)
+      const textSources = []
+      const urlSources = []
+      const audioErrors = []
+
+      // 2. Process each item
+      for (let idx = 0; idx < workItems.length; idx++) {
+        const item = workItems[idx]
+
+        if (item.type === 'audio') {
+          setAnalyzeStatus('transcribing')
+          try {
+            const fd = new FormData()
+            fd.append('file', item.file)
+            const tr = await fetch('/api/transcribe', { method: 'POST', body: fd })
+            const td = await tr.json()
+            if (td.transcript) {
+              textSources.push(`[Audio: ${item.name}]\n${td.transcript}`)
+            } else {
+              audioErrors.push(item.name)
+              textSources.push(`[Audio: ${item.name} — trascrizione non disponibile]`)
+            }
+          } catch {
+            audioErrors.push(item.name)
+            textSources.push(`[Audio: ${item.name} — errore trascrizione]`)
           }
+
+        } else if (item.type === 'file') {
+          const ext = getExt(item.name)
+          if (isImgExt(ext)) {
+            if (supportsImages) {
+              setAnalyzeStatus('uploading')
+              const dataUrl = await compressImgToDataUrl(item.file)
+              images.push(dataUrl)
+            } else {
+              // Text-only provider: upload to Supabase Storage, pass URL as text ref
+              setAnalyzeStatus('uploading')
+              try {
+                const safeName = item.name.replace(/[^a-zA-Z0-9._-]/g, '_')
+                const path = `${utente.id}/upload/${Date.now()}_${safeName}`
+                let blob = item.file, ct = item.file.type || 'image/jpeg'
+                try { blob = await compressImg(item.file); ct = 'image/jpeg' } catch {}
+                const { error: ue } = await supabase.storage.from('fonti').upload(path, blob, { contentType: ct })
+                if (!ue) {
+                  const { data: { publicUrl } } = supabase.storage.from('fonti').getPublicUrl(path)
+                  item.preUploadedUrl = publicUrl
+                  urlSources.push(`[Immagine: ${item.name}, URL: ${publicUrl}]`)
+                } else {
+                  urlSources.push(`[Immagine: ${item.name}]`)
+                }
+              } catch {
+                urlSources.push(`[Immagine: ${item.name}]`)
+              }
+            }
+          } else if (ext === 'pdf') {
+            if (supportsImages) {
+              const dataUrl = await fileToDataUrl(item.file)
+              images.push(dataUrl)
+            } else {
+              urlSources.push(`[PDF: ${item.name}]`)
+            }
+          } else {
+            urlSources.push(`[Documento: ${item.name}]`)
+          }
+
         } else if (item.type === 'text') {
           textSources.push(item.text)
         } else if (item.type === 'url') {
           urlSources.push(item.url)
         } else if (item.type === 'youtube' && item.videoId) {
-          // Fetch YouTube transcript
           try {
             const tr = await fetch(`/api/transcript?v=${item.videoId}`)
             const td = await tr.json()
             if (td.transcript) textSources.push(`[YouTube: ${item.name}]\n${td.transcript}`)
             else urlSources.push(item.url)
           } catch { urlSources.push(item.url) }
-        } else if (item.type === 'audio') {
-          // Transcribe audio via Whisper
-          try {
-            const fd = new FormData()
-            fd.append('file', item.file)
-            const tr = await fetch('/api/transcribe', { method: 'POST', body: fd })
-            const td = await tr.json()
-            if (td.transcript) textSources.push(`[Audio: ${item.name}]\n${td.transcript}`)
-            else textSources.push(`[Audio: ${item.name} — trascrizione non disponibile]`)
-          } catch { textSources.push(`[Audio: ${item.name} — errore trascrizione]`) }
         }
       }
 
-      const fileList = items.map((it, i) => `[${i}] ${it.name} (${it.type})`).join('\n')
+      // Notify user about audio errors
+      if (audioErrors.length > 0) {
+        toast(`⚠️ Trascrizione fallita per: ${audioErrors.join(', ')}. Procedo comunque.`)
+      }
+
+      // 3. Build analysis prompt
+      const fileList = workItems.map((it, i) => `[${i}] ${it.name} (${it.type})`).join('\n')
       const existingList = materie.length
         ? materie.map(m => `- "${m.nome}" id:${m.id}`).join('\n')
         : '(nessuna materia esistente)'
@@ -181,7 +304,7 @@ RULES:
 - If a subject already exists in the user's library, prefer adding to it rather than creating a duplicate.
 - Topic names must be broad, descriptive, and academically meaningful (e.g. "World War II", "Nuclear Energy", "Latin Subordinate Clauses").
 - Base your analysis on the overall theme of each material, not on its internal sections or paragraphs.
-- If two materials share the same subject, group them under the same subject even if they come from different sources.
+- IMPORTANT: Before creating a new subject name, always check this preferred list and use the EXACT name if the content matches: ${MATERIE_BASE.join(', ')}
 - Always respond ONLY with valid JSON, no explanations, no markdown, no asterisks.
 
 OUTPUT FORMAT:
@@ -194,36 +317,76 @@ OUTPUT FORMAT:
   ]
 }`
 
-      const prompt = `Materials to organize (index and name):
-${fileList}
+      const prompt = `Materials to organize (index and name):\n${fileList}\n\nExisting subjects in the user's library:\n${existingList}\n\nAnalyze all materials above and return the JSON structure.`
 
-Existing subjects in the user's library:
-${existingList}
+      // 4. Process images in batches of 4
+      setAnalyzeStatus('analyzing')
+      let result
 
-Analyze all materials above and return the JSON structure.`
+      const BATCH = 4
+      if (images.length <= BATCH) {
+        // Single call — standard path
+        const res = await fetch('/api/ai', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt, images, textSources, urlSources, settings: { length: 2 }, systemContext, fileNames: fileList })
+        })
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Errore AI') }
+        result = (await res.json()).result
 
-      const res = await fetch('/api/ai', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt, images, textSources, urlSources, settings: { length: 2 }, systemContext, fileNames: fileList })
-      })
+      } else {
+        // Multiple batches: describe each batch first, then final analysis
+        setAnalyzeStatus('batching')
+        const batchDescriptions = []
+        for (let i = 0; i < images.length; i += BATCH) {
+          const batch = images.slice(i, i + BATCH)
+          const batchRes = await fetch('/api/ai', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt: `Describe briefly (1-2 sentences each) what you see in these ${batch.length} image(s), in Italian. Focus on academic subject matter.`,
+              images: batch, textSources: [], urlSources: [], settings: { length: 1 },
+              systemContext: 'Describe images briefly in Italian for academic categorization.',
+              fileNames: ''
+            })
+          })
+          if (batchRes.ok) {
+            const bd = await batchRes.json()
+            batchDescriptions.push(`[Descrizione immagini ${i + 1}-${Math.min(i + BATCH, images.length)}]: ${bd.result}`)
+          }
+        }
 
-      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Errore AI') }
-      const d = await res.json()
+        setAnalyzeStatus('finishing')
+        const res = await fetch('/api/ai', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt, images: [], textSources: [...textSources, ...batchDescriptions],
+            urlSources, settings: { length: 2 }, systemContext, fileNames: fileList
+          })
+        })
+        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Errore AI') }
+        result = (await res.json()).result
+      }
 
-      const match = d.result.match(/\{[\s\S]*\}/)
+      setAnalyzeStatus('finishing')
+      const match = result.match(/\{[\s\S]*\}/)
       if (!match) throw new Error('Risposta AI non JSON')
       const parsed = JSON.parse(match[0])
 
-      setProposal({
+      const newProposal = {
         nuove: (parsed.nuove_materie || []).map((m, i) => ({ ...m, _id: 'new-' + i })),
         esistenti: parsed.aggiunte_esistenti || [],
-      })
+      }
+
+      setItems(workItems)  // save pre-uploaded URLs back to items state
+      setProposal(newProposal)
+      setOriginalProposal(JSON.parse(JSON.stringify(newProposal)))
+      setProposalDiverged(false)
       setStep('confirm')
+
     } catch (e) {
       setErr('Errore: ' + e.message)
       setStep('upload')
     }
+    setAnalyzeStatus('')
   }
 
   /* ── Save ── */
@@ -233,9 +396,7 @@ Analyze all materials above and return the JSON structure.`
     try {
       for (const mat of (proposal.nuove || [])) {
         const { data: newMat } = await supabase.from('materie').insert({
-          utente_email: utente.email,
-          nome: mat.nome,
-          emoji: mat.emoji || '📚',
+          utente_email: utente.email, nome: mat.nome, emoji: mat.emoji || '📚',
         }).select().single()
         if (!newMat) continue
 
@@ -247,7 +408,6 @@ Analyze all materials above and return the JSON structure.`
           if (newArg && !firstArgId) firstArgId = newArg.id
         }
         if (firstArgId) {
-          // Più argomenti creati dallo stesso upload → fonti condivise (argomento_id = null)
           const uploadArgId = mat.argomenti?.length > 1 ? null : firstArgId
           for (const idx of (mat.item_indices || [])) {
             if (items[idx]) await uploadItem(items[idx], newMat.id, uploadArgId)
@@ -283,11 +443,20 @@ Analyze all materials above and return the JSON structure.`
 
   async function uploadItem(item, materiaId, argomentoId) {
     if (item.type === 'file' || item.type === 'audio') {
+      // If pre-uploaded during analysis (text-only provider path), skip re-upload
+      if (item.preUploadedUrl) {
+        await supabase.from('fonti').insert({
+          utente_email: utente.email, materia_id: materiaId, argomento_id: argomentoId,
+          nome: item.name, url: item.preUploadedUrl,
+          tipo: item.type === 'audio' ? 'audio' : 'file',
+        })
+        return
+      }
       const ext = getExt(item.name)
       const safeName = item.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       let blob = item.file, ct = item.file.type || 'application/octet-stream'
       if (isImgExt(ext)) { blob = await compressImg(item.file); ct = 'image/jpeg' }
-      const path = `${utente.id}/${argomentoId||materiaId}/${Date.now()}_${safeName}`
+      const path = `${utente.id}/${argomentoId || materiaId}/${Date.now()}_${safeName}`
       const { error: ue } = await supabase.storage.from('fonti').upload(path, blob, { contentType: ct })
       if (ue) return
       const { data: { publicUrl } } = supabase.storage.from('fonti').getPublicUrl(path)
@@ -318,47 +487,25 @@ Analyze all materials above and return the JSON structure.`
     setProposal(p => ({ ...p, nuove: p.nuove.map((m, j) => j === i ? { ...m, nome } : m) }))
   }
   function updateNuovaArg(i, ai, val) {
-    setProposal(p => ({
-      ...p,
-      nuove: p.nuove.map((m, j) => j !== i ? m : {
-        ...m, argomenti: m.argomenti.map((a, k) => k === ai ? val : a)
-      })
-    }))
+    setProposal(p => ({ ...p, nuove: p.nuove.map((m, j) => j !== i ? m : { ...m, argomenti: m.argomenti.map((a, k) => k === ai ? val : a) }) }))
   }
   function updateEsistenteArg(i, ai, val) {
-    setProposal(p => ({
-      ...p,
-      esistenti: p.esistenti.map((m, j) => j !== i ? m : {
-        ...m, argomenti: m.argomenti.map((a, k) => k === ai ? val : a)
-      })
-    }))
+    setProposal(p => ({ ...p, esistenti: p.esistenti.map((m, j) => j !== i ? m : { ...m, argomenti: m.argomenti.map((a, k) => k === ai ? val : a) }) }))
   }
-
-  /* ── Rimuovi / aggiungi / unisci ── */
   function removeNuova(i) {
     setProposal(p => ({ ...p, nuove: p.nuove.filter((_, j) => j !== i) }))
     if (mergePickerFor === i) setMergePickerFor(null)
   }
   function removeNuovaArg(i, ai) {
-    setProposal(p => ({
-      ...p,
-      nuove: p.nuove.map((m, j) => j !== i ? m : { ...m, argomenti: m.argomenti.filter((_, k) => k !== ai) })
-    }))
+    setProposal(p => ({ ...p, nuove: p.nuove.map((m, j) => j !== i ? m : { ...m, argomenti: m.argomenti.filter((_, k) => k !== ai) }) }))
   }
   function addNuovaArg(i) {
-    setProposal(p => ({
-      ...p,
-      nuove: p.nuove.map((m, j) => j !== i ? m : { ...m, argomenti: [...m.argomenti, ''] })
-    }))
+    setProposal(p => ({ ...p, nuove: p.nuove.map((m, j) => j !== i ? m : { ...m, argomenti: [...m.argomenti, ''] }) }))
   }
   function mergeNuovaInto(srcI, tgtI) {
     setProposal(p => {
       const src = p.nuove[srcI], tgt = p.nuove[tgtI]
-      const merged = {
-        ...tgt,
-        argomenti: [...tgt.argomenti, ...src.argomenti],
-        item_indices: [...(tgt.item_indices || []), ...(src.item_indices || [])]
-      }
+      const merged = { ...tgt, argomenti: [...tgt.argomenti, ...src.argomenti], item_indices: [...(tgt.item_indices || []), ...(src.item_indices || [])] }
       return { ...p, nuove: p.nuove.map((m, j) => j === tgtI ? merged : m).filter((_, j) => j !== srcI) }
     })
     setMergePickerFor(null)
@@ -367,24 +514,25 @@ Analyze all materials above and return the JSON structure.`
     setProposal(p => ({ ...p, esistenti: p.esistenti.filter((_, j) => j !== i) }))
   }
   function removeEsistenteArg(i, ai) {
-    setProposal(p => ({
-      ...p,
-      esistenti: p.esistenti.map((m, j) => j !== i ? m : { ...m, argomenti: m.argomenti.filter((_, k) => k !== ai) })
-    }))
+    setProposal(p => ({ ...p, esistenti: p.esistenti.map((m, j) => j !== i ? m : { ...m, argomenti: m.argomenti.filter((_, k) => k !== ai) }) }))
   }
   function convertToNuova(i) {
     const add = proposal.esistenti[i]
     const mat = materie.find(m => m.id === add.materia_id)
     setProposal(p => ({
       nuove: [...p.nuove, {
-        nome: add.materia_nome,
-        emoji: mat?.emoji || '📚',
-        argomenti: [...add.argomenti],
-        item_indices: [...(add.item_indices || [])],
+        nome: add.materia_nome, emoji: mat?.emoji || '📚',
+        argomenti: [...add.argomenti], item_indices: [...(add.item_indices || [])],
         _id: 'new-' + Date.now()
       }],
       esistenti: p.esistenti.filter((_, j) => j !== i)
     }))
+    setProposalDiverged(true)
+  }
+  function revertToOriginal() {
+    setProposal(JSON.parse(JSON.stringify(originalProposal)))
+    setProposalDiverged(false)
+    setMergePickerFor(null)
   }
 
   /* ════════════════════ RENDER ════════════════════ */
@@ -410,7 +558,6 @@ Analyze all materials above and return the JSON structure.`
               {saving ? '…' : 'Aggiungi ✓'}
             </button>
           )}
-          {/* No duplicate Salva button in header for confirm step — only the bottom btn-primary is shown */}
           {!directUpload && step === 'confirm' && <div style={{width:70}}/>}
           {(!directUpload && (step === 'analyzing' || (step === 'upload' && !items.length))) && <div style={{width:70}}/>}
           {(directUpload && !items.length) && <div style={{width:70}}/>}
@@ -419,13 +566,13 @@ Analyze all materials above and return the JSON structure.`
         {/* ─────── STEP: UPLOAD ─────── */}
         {step === 'upload' && (
           <div className="up-body">
-            {/* Drag & drop zone */}
             <div
               className={`up-dropzone${dragOver ? ' drag-over' : ''}`}
               onDrop={onDrop} onDragOver={onDragOver} onDragLeave={onDragLeave}
               onClick={() => fileRef.current?.click()}
             >
-              <input ref={fileRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.mp3,.m4a,.wav,.aac,.ogg"
+              <input ref={fileRef} type="file" multiple
+                accept="image/*,.pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.mp3,.m4a,.wav,.aac,.ogg"
                 style={{display:'none'}} onChange={e => addFiles(e.target.files)}/>
               <div className="up-drop-icon">
                 <svg width="36" height="36" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
@@ -441,7 +588,6 @@ Analyze all materials above and return the JSON structure.`
               </div>
             </div>
 
-            {/* Extra source buttons */}
             <div className="up-extra-btns">
               <button className={`up-extra-btn${showText ? ' active' : ''}`} onClick={() => { setShowText(p => !p); setShowUrl(false) }}>
                 ✏️ Testo
@@ -460,12 +606,11 @@ Analyze all materials above and return the JSON structure.`
 
             {showUrl && (
               <div className="up-url-row">
-                <input className="up-url-input" type="url" placeholder="https://…" value={urlVal} onChange={e => setUrlVal(e.target.value) } onKeyDown={e => e.key === 'Enter' && addUrl()}/>
+                <input className="up-url-input" type="url" placeholder="https://…" value={urlVal} onChange={e => setUrlVal(e.target.value)} onKeyDown={e => e.key === 'Enter' && addUrl()}/>
                 <button className="btn-sm primary" onClick={addUrl}>+</button>
               </div>
             )}
 
-            {/* Chips of added items */}
             {items.length > 0 && (
               <div className="up-chips">
                 {items.map((item, i) => (
@@ -490,10 +635,26 @@ Analyze all materials above and return the JSON structure.`
         {step === 'analyzing' && (
           <div className="up-body up-analyzing">
             <div className="ai-spinner" style={{width:56,height:56,borderWidth:4}}/>
-            <p style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:'1.05rem',color:'var(--ink)'}}>L'AI sta analizzando…</p>
-            <p style={{fontSize:'.85rem',color:'var(--muted)',textAlign:'center',maxWidth:260,lineHeight:1.6}}>
-              Sto esaminando {items.length} {items.length === 1 ? 'file' : 'file'} e organizzo la struttura di studio
+            <p style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:'1.05rem',color:'var(--ink)'}}>
+              {STATUS_MSGS[analyzeStatus] || 'Elaborazione in corso…'}
             </p>
+            <p style={{fontSize:'.85rem',color:'var(--muted)',textAlign:'center',maxWidth:260,lineHeight:1.6}}>
+              Analisi di {items.length} {items.length === 1 ? 'file' : 'file'} in corso
+            </p>
+            <div className="analyze-steps">
+              {['uploading','transcribing','analyzing','batching','finishing'].map((s, i) => {
+                const steps = ['uploading','transcribing','analyzing','batching','finishing']
+                const currentIdx = steps.indexOf(analyzeStatus)
+                const isDone = i < currentIdx
+                const isCurrent = i === currentIdx
+                return (
+                  <div key={s} className={`analyze-step${isDone?' done':isCurrent?' active':''}`}>
+                    <span className="analyze-step-dot"/>
+                    <span>{STATUS_MSGS[s]}</span>
+                  </div>
+                )
+              })}
+            </div>
           </div>
         )}
 
@@ -504,6 +665,13 @@ Analyze all materials above and return the JSON structure.`
               Rivedi la struttura proposta. Puoi rinominare, rimuovere, unire materie e argomenti.
             </p>
 
+            {/* Restore original AI suggestion */}
+            {proposalDiverged && (
+              <button className="up-revert-btn" onClick={revertToOriginal}>
+                ← Torna al suggerimento AI
+              </button>
+            )}
+
             {/* Nuove materie */}
             {proposal.nuove?.length > 0 && <>
               <div className="up-section-label">📚 Nuove materie da creare</div>
@@ -511,29 +679,19 @@ Analyze all materials above and return the JSON structure.`
                 <div key={mat._id} className="up-proposal-card">
                   <div className="up-proposal-header">
                     <span className="up-prop-emoji">{mat.emoji}</span>
-                    <input
-                      className="up-prop-name-input"
-                      value={mat.nome}
-                      onChange={e => updateNuovaNome(i, e.target.value)}
-                    />
+                    <input className="up-prop-name-input" value={mat.nome} onChange={e => updateNuovaNome(i, e.target.value)}/>
                     <button className="up-card-remove" onClick={() => removeNuova(i)} title="Rimuovi materia">✕</button>
                   </div>
-
                   <div className="up-prop-args">
                     <span className="up-prop-args-label">Argomenti:</span>
                     {mat.argomenti?.map((arg, ai) => (
                       <div key={ai} className="up-arg-row">
-                        <input
-                          className="up-arg-input"
-                          value={arg}
-                          onChange={e => updateNuovaArg(i, ai, e.target.value)}
-                        />
+                        <input className="up-arg-input" value={arg} onChange={e => updateNuovaArg(i, ai, e.target.value)}/>
                         <button className="up-arg-remove" onClick={() => removeNuovaArg(i, ai)}>✕</button>
                       </div>
                     ))}
                     <button className="up-add-arg-btn" onClick={() => addNuovaArg(i)}>+ arg</button>
                   </div>
-
                   {mat.item_indices?.length > 0 && (
                     <div className="up-prop-files">
                       {mat.item_indices.map(idx => items[idx] && (
@@ -543,13 +701,9 @@ Analyze all materials above and return the JSON structure.`
                       ))}
                     </div>
                   )}
-
                   {proposal.nuove.length > 1 && (
                     <div className="up-merge-wrap">
-                      <button
-                        className={`up-merge-btn${mergePickerFor === i ? ' active' : ''}`}
-                        onClick={() => setMergePickerFor(mergePickerFor === i ? null : i)}
-                      >
+                      <button className={`up-merge-btn${mergePickerFor === i ? ' active' : ''}`} onClick={() => setMergePickerFor(mergePickerFor === i ? null : i)}>
                         ⤵ Unisci a...
                       </button>
                       {mergePickerFor === i && (
@@ -584,11 +738,7 @@ Analyze all materials above and return the JSON structure.`
                       <span className="up-prop-args-label">Nuovi argomenti:</span>
                       {add.argomenti?.map((arg, ai) => (
                         <div key={ai} className="up-arg-row">
-                          <input
-                            className="up-arg-input"
-                            value={arg}
-                            onChange={e => updateEsistenteArg(i, ai, e.target.value)}
-                          />
+                          <input className="up-arg-input" value={arg} onChange={e => updateEsistenteArg(i, ai, e.target.value)}/>
                           <button className="up-arg-remove" onClick={() => removeEsistenteArg(i, ai)}>✕</button>
                         </div>
                       ))}

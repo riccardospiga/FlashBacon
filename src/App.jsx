@@ -149,6 +149,9 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   const [selMaterie,setSelMaterie]=useState(new Set())
   const [selArg,setSelArg]=useState(new Set())
 
+  // Source preview
+  const [previewFonte,setPreviewFonte]=useState(null)
+
   // Forms
   const [newMatNome,setNewMatNome]=useState('')
   const [newMatEmoji,setNewMatEmoji]=useState('📚')
@@ -171,6 +174,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   const [quizIdx,setQuizIdx]=useState(0)
   const [quizAnswered,setQuizAnswered]=useState(false)
   const [quizScore,setQuizScore]=useState(0)
+  const [quizWrong,setQuizWrong]=useState([])
   const [openAnswers,setOpenAnswers]=useState({})
   const [openRevealed,setOpenRevealed]=useState({})
 
@@ -194,7 +198,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   // Ripasso wizard
   const [rStep,setRStep]=useState(1)
   const [rMat,setRMat]=useState(null)
-  const [rArg,setRArg]=useState(null)
+  const [rArgs,setRArgs]=useState([])  // empty = tutti
   const [rFreq,setRFreq]=useState('settimanale')
   const [rOrario,setROrario]=useState('08:00')
   const [rQNum,setRQNum]=useState(5)
@@ -491,7 +495,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       if(key==='flashcards'){const c=parseFC(result);setFcCards(c);setFcIdx(0);setFcFlipped(false);setFullpage({title:'Flash Cards',type:'fc',data:c})}
       else if(key==='mappa'){const d=parseMappa(result);setMappaData(d);setExpandedNodes(new Set());setFullpage({title:'Mappa Concettuale',type:'mappa',data:d})}
       else if(key==='riassunto'){const d=parseRiassunto(result);setRiassuntoData(d);setExpandedSecs(new Set(d.map((_,i)=>i)));setFullpage({title:'Riassunto',type:'riassunto',data:d})}
-      else if(key==='quiz'){const p=parseQuiz(result);setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setFullpage({title:'Quiz',type:'quiz',data:p})}
+      else if(key==='quiz'){const p=parseQuiz(result);setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([]);setFullpage({title:'Quiz',type:'quiz',data:p})}
       else if(key==='quiz-aperta'){
         const qs=parseOpenQuiz(result)
         setQuizData(qs);setQuizApertaIdx(0);setOpenAnswers({});setOpenRevealed({});setFullpage({title:'Quiz Aperta',type:'quiz-aperta',data:qs})
@@ -544,7 +548,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     if(s.tipo==='flashcards'){const c=parseFC(s.contenuto);if(c.length){setFcCards(c);setFcIdx(0);setFcFlipped(false);setFullpage({title:'Flash Cards',type:'fc',data:c});return}}
     if(s.tipo==='mappa'){const d=parseMappa(s.contenuto);setMappaData(d);setExpandedNodes(new Set());setFullpage({title:'Mappa Concettuale',type:'mappa',data:d});return}
     if(s.tipo==='riassunto'){const d=parseRiassunto(s.contenuto);setRiassuntoData(d);setExpandedSecs(new Set(d.map((_,i)=>i)));setFullpage({title:'Riassunto',type:'riassunto',data:d});return}
-    if(s.tipo==='quiz'){const p=parseQuiz(s.contenuto);if(p.length){setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setFullpage({title:'Quiz',type:'quiz',data:p});return}}
+    if(s.tipo==='quiz'){const p=parseQuiz(s.contenuto);if(p.length){setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([]);setFullpage({title:'Quiz',type:'quiz',data:p});return}}
     if(s.tipo==='quiz-aperta'){const qs=parseOpenQuiz(s.contenuto);if(qs.length){setQuizData(qs);setQuizApertaIdx(0);setOpenAnswers({});setOpenRevealed({});setFullpage({title:'Quiz Aperta',type:'quiz-aperta',data:qs});return}}
     setFullpage({title:s.tipo,type:'text',data:s.contenuto})
   }
@@ -555,7 +559,9 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     if('Notification' in window&&Notification.permission==='default'){
       await Notification.requestPermission()
     }
-    const{data}=await supabase.from('studio_pianificato').insert({utente_email:utente.email,materia_id:rMat,argomento_id:rArg,frequenza:rFreq,orario:rOrario,difficolta:2,quiz_num:rQNum,quiz_modalita:rQMode}).select().single()
+    // single selection → use that argomento; multiple or none → null (all)
+    const argomentoId=rArgs.length===1?rArgs[0]:null
+    const{data}=await supabase.from('studio_pianificato').insert({utente_email:utente.email,materia_id:rMat,argomento_id:argomentoId,frequenza:rFreq,orario:rOrario,difficolta:2,quiz_num:rQNum,quiz_modalita:rQMode}).select().single()
     if(data){
       setRipassi(p=>[...p,data]) // ascending order: new entries at end
       // Generate quiz immediately and save to Lab
@@ -609,7 +615,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
         await saveStorico(mode==='multipla'?'quiz':'quiz-aperta',result)
         if(mode==='multipla'){
           const p=parseQuiz(result)
-          setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0)
+          setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([])
           setFullpage({title:'Quiz Ripasso',type:'quiz',data:p})
         }else{
           const qs=parseOpenQuiz(result)
@@ -735,7 +741,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
             </button>
             <span className="big-plus-label">Carica e analizza con AI</span>
           </div>
-          <button className="ripasso-home-btn" onClick={()=>{setRStep(1);setRMat(null);setRArg(null);setScreen('ripasso')}}>
+          <button className="ripasso-home-btn" onClick={()=>{setRStep(1);setRMat(null);setRArgs([]);setScreen('ripasso')}}>
             <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 8v4l3 3M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
             Ripasso
           </button>
@@ -838,8 +844,13 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
             return(
               <div key={f.id} className="fonte-row"
                 style={{border:isSel?'2px solid var(--primary-lt)':'2px solid transparent',cursor:'pointer'}}
-                onClick={()=>{const n=new Set(selFonti);n.has(f.id)?n.delete(f.id):n.add(f.id);setSelFonti(n)}}
+                onClick={()=>{
+                  if(selFonti.size>0){const n=new Set(selFonti);n.has(f.id)?n.delete(f.id):n.add(f.id);setSelFonti(n);return}
+                  setPreviewFonte(f)
+                }}
                 onContextMenu={e=>{e.preventDefault();const n=new Set(selFonti);n.has(f.id)?n.delete(f.id):n.add(f.id);setSelFonti(n)}}
+                onTouchStart={()=>{lpRef.current=setTimeout(()=>{const n=new Set(selFonti);n.has(f.id)?n.delete(f.id):n.add(f.id);setSelFonti(n)},600)}}
+                onTouchEnd={()=>clearTimeout(lpRef.current)}
               >
                 {selFonti.size>0&&<div className={'sel-check'+(isSel?' checked':'')} style={{position:'static',flexShrink:0}}>{isSel&&<svg width="12" height="12" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>}</div>}
                 <div className="fonte-preview">{isImg?<img src={f.url} alt={f.nome}/>:<span>{icon}</span>}</div>
@@ -1076,7 +1087,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
               <div key={r.id} className="ripasso-item">
                 <div>
                   <div style={{fontWeight:600,fontSize:'.9rem'}}>{mat?.emoji} {mat?.nome}</div>
-                  <div className="ripasso-meta">{arg?arg.nome:'Tutti'} · {r.frequenza} · {r.orario} · {r.quiz_num} domande {r.quiz_modalita}</div>
+                  <div className="ripasso-meta">{r.argomento_id?arg?.nome:'Tutti gli argomenti'} · {r.frequenza} · {r.orario} · {r.quiz_num} dom. {r.quiz_modalita}</div>
                 </div>
                 <div style={{display:'flex',gap:6}}>
                   <button className="btn-sm primary" onClick={()=>startRipassoQuiz(r)}>▶ Quiz</button>
@@ -1088,7 +1099,18 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
         </>}
         <p style={{fontSize:'.78rem',fontWeight:600,color:'var(--muted)',marginTop:4}}>NUOVO RIPASSO</p>
         {rStep===1&&<><div className="ripasso-card"><h4>1. Scegli la materia</h4>{materie.map(m=><button key={m.id} className={`ripasso-opt ${rMat===m.id?'sel':''}`} onClick={()=>setRMat(m.id)}>{m.emoji} {m.nome}</button>)}</div><button className="btn-primary" onClick={()=>setRStep(2)} disabled={!rMat}>Avanti →</button></>}
-        {rStep===2&&<><div className="ripasso-card"><h4>2. Argomento</h4><button className={`ripasso-opt ${!rArg?'sel':''}`} onClick={()=>setRArg(null)}>📚 Tutti</button>{argomenti.filter(a=>a.materia_id===rMat).map(a=><button key={a.id} className={`ripasso-opt ${rArg===a.id?'sel':''}`} onClick={()=>setRArg(a.id)}>{a.nome}</button>)}</div><div style={{display:'flex',gap:8}}><button className="btn-secondary" style={{marginTop:0}} onClick={()=>setRStep(1)}>←</button><button className="btn-primary" onClick={()=>setRStep(3)}>Avanti →</button></div></>}
+        {rStep===2&&<><div className="ripasso-card"><h4>2. Argomenti</h4>
+          <p style={{fontSize:'.78rem',color:'var(--muted)',marginBottom:8}}>Seleziona uno o più argomenti (vuoto = tutti)</p>
+          <button className={`ripasso-opt ripasso-opt-check ${rArgs.length===0?'sel':''}`} onClick={()=>setRArgs([])}>
+            <span className="ripasso-check">{rArgs.length===0?'☑':'☐'}</span> Tutti gli argomenti
+          </button>
+          {argomenti.filter(a=>a.materia_id===rMat).map(a=>(
+            <button key={a.id} className={`ripasso-opt ripasso-opt-check ${rArgs.includes(a.id)?'sel':''}`}
+              onClick={()=>setRArgs(prev=>prev.includes(a.id)?prev.filter(x=>x!==a.id):[...prev,a.id])}>
+              <span className="ripasso-check">{rArgs.includes(a.id)?'☑':'☐'}</span> {a.nome}
+            </button>
+          ))}
+        </div><div style={{display:'flex',gap:8}}><button className="btn-secondary" style={{marginTop:0}} onClick={()=>setRStep(1)}>←</button><button className="btn-primary" onClick={()=>setRStep(3)}>Avanti →</button></div></>}
         {rStep===3&&<><div className="ripasso-card"><h4>3. Opzioni</h4>
           <div className="field" style={{marginBottom:12}}><label>Frequenza</label><select className="select-field" value={rFreq} onChange={e=>setRFreq(e.target.value)}><option value="giornaliero">Giornaliero</option><option value="settimanale">Settimanale</option><option value="mensile">Mensile</option></select></div>
           <div className="field" style={{marginBottom:12}}><label>Orario</label><input type="time" className="select-field" value={rOrario} onChange={e=>setROrario(e.target.value)}/></div>
@@ -1137,12 +1159,24 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
           <div className="quiz-score">
             <div className="quiz-score-circle">{quizScore}/{quizData.length}</div>
             <h2 style={{fontFamily:'Syne,sans-serif',fontWeight:800,fontSize:'1.3rem'}}>Quiz completato!</h2>
-            <p style={{color:'var(--muted)'}}>Hai risposto correttamente a {quizScore} su {quizData.length}.</p>
-            <button className="btn-primary" style={{maxWidth:220}} onClick={()=>{setQuizIdx(0);setQuizAnswered(false);setQuizScore(0)}}>Riprova</button>
+            <p style={{color:'var(--muted)',marginBottom:quizWrong.length?16:0}}>
+              Hai risposto correttamente a <strong>{quizScore}</strong> su {quizData.length}.
+            </p>
+            {quizWrong.length>0&&<div className="quiz-wrong-list">
+              <p className="quiz-wrong-title">❌ Risposte errate ({quizWrong.length})</p>
+              {quizWrong.map(({qi,q})=>(
+                <div key={qi} className="quiz-wrong-item">
+                  <div className="quiz-wrong-q">{cleanText(q.dom||q.domanda||'')}</div>
+                  <div className="quiz-wrong-ans">✓ {cleanText((q.opts||q.opzioni||[])[q.cor??q.corretta]||'')}</div>
+                </div>
+              ))}
+            </div>}
+            <button className="btn-primary" style={{maxWidth:220,marginTop:16}} onClick={()=>{setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([])}}>Riprova</button>
           </div>
         ):<div className="quiz-fit">
-          <div className="quiz-progress">{quizData.map((_,i)=><div key={i} className={`quiz-dot ${i<quizIdx?'done':i===quizIdx?'current':''}`}/>)}</div>
-          <QuizQ q={quizData[quizIdx]} idx={quizIdx} total={quizData.length} answered={quizAnswered} setAnswered={setQuizAnswered} onNext={()=>{setQuizIdx(i=>i+1);setQuizAnswered(false)}} onCorrect={()=>setQuizScore(s=>s+1)}/>
+          <div className="quiz-progressbar-wrap"><div className="quiz-progressbar" style={{width:`${(quizIdx/quizData.length)*100}%`}}/></div>
+          <span className="quiz-counter">{quizIdx+1} / {quizData.length}</span>
+          <QuizQ key={quizIdx} q={quizData[quizIdx]} idx={quizIdx} total={quizData.length} answered={quizAnswered} setAnswered={setQuizAnswered} onNext={()=>{setQuizIdx(i=>i+1);setQuizAnswered(false)}} onCorrect={()=>setQuizScore(s=>s+1)} onWrong={q=>setQuizWrong(p=>[...p,{qi:quizIdx,q}])}/>
         </div>)}
 
         {fullpage.type==='quiz-aperta'&&quizData&&quizData.length>0&&(
@@ -1282,6 +1316,9 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       <span>{notifica.msg} — Tocca per il quiz</span><span>→</span>
     </div>}
 
+    {/* FONTE PREVIEW */}
+    {previewFonte&&<FontePreviewModal fonte={previewFonte} onClose={()=>setPreviewFonte(null)}/>}
+
     {/* ONBOARDING */}
     {onb&&<div className="onb-ov"><div className="onb-card">
       <div className="onb-icon">{ONB[onbStep].icon}</div>
@@ -1337,19 +1374,88 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   </div>)
 }
 
-/* ═══ QUIZ QUESTION ═══ */
-function QuizQ({q,idx,total,answered,setAnswered,onNext,onCorrect}){
-  const [chosen,setChosen]=useState(null)
-  function answer(i){if(answered)return;setChosen(i);setAnswered(true);if(i===(q.cor??q.corretta))onCorrect?.()}
+/* ═══ FONTE PREVIEW MODAL ═══ */
+function FontePreviewModal({fonte,onClose}){
+  const ext=getExt(fonte.nome)
+  const isImg=isImgExt(ext)||(fonte.tipo==='file'&&fonte.url?.match(/\.(jpg|jpeg|png|gif|webp)($|\?)/i))
+  const isPdf=ext==='pdf'
+  const ytId=fonte.tipo==='youtube'?fonte.url?.match(/(?:v=|youtu\.be\/)([A-Za-z0-9_-]{11})/)?.[1]:null
   return(
-    <div className="quiz-card" style={{flex:1,overflowY:'auto'}}>
-      <p style={{fontSize:'.76rem',color:'var(--muted)',fontWeight:600,marginBottom:10}}>Domanda {idx+1} di {total}</p>
+    <div className="fonte-modal-ov" onClick={onClose}>
+      <div className="fonte-modal" onClick={e=>e.stopPropagation()}>
+        <div className="fonte-modal-hdr">
+          <span className="fonte-modal-name">{fonte.nome}</span>
+          <button className="fonte-modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="fonte-modal-body">
+          {fonte.tipo==='text'&&(
+            <textarea className="fonte-modal-text" readOnly value={fonte.testo||''}/>
+          )}
+          {isImg&&(
+            <img src={fonte.url} alt={fonte.nome} className="fonte-modal-img"/>
+          )}
+          {isPdf&&!isImg&&(
+            <iframe src={fonte.url} className="fonte-modal-iframe" title={fonte.nome}/>
+          )}
+          {fonte.tipo==='audio'&&(
+            <div className="fonte-modal-audio">
+              <div className="fonte-modal-audio-icon">🎵</div>
+              <p style={{fontSize:'.9rem',color:'var(--muted)',marginBottom:16}}>{fonte.nome}</p>
+              <audio controls src={fonte.url} style={{width:'100%'}}/>
+            </div>
+          )}
+          {ytId&&(
+            <iframe
+              src={`https://www.youtube.com/embed/${ytId}`}
+              className="fonte-modal-iframe"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen title={fonte.nome}
+            />
+          )}
+          {fonte.tipo==='url'&&(
+            <div className="fonte-modal-url-body">
+              <div style={{fontSize:'2rem',marginBottom:12}}>🔗</div>
+              <p style={{fontSize:'.88rem',color:'var(--muted)',wordBreak:'break-all',marginBottom:20}}>{fonte.url}</p>
+              <a href={fonte.url} target="_blank" rel="noopener noreferrer" className="btn-primary" style={{display:'inline-block',textDecoration:'none',padding:'12px 24px'}}>
+                Apri nel browser
+              </a>
+            </div>
+          )}
+          {fonte.tipo==='file'&&!isImg&&!isPdf&&fonte.url&&(
+            <div className="fonte-modal-url-body">
+              <div style={{fontSize:'2rem',marginBottom:12}}>{EXT_ICON[ext]||'📎'}</div>
+              <p style={{fontSize:'.88rem',color:'var(--muted)',marginBottom:20}}>{fonte.nome}</p>
+              <a href={fonte.url} target="_blank" rel="noopener noreferrer" className="btn-primary" style={{display:'inline-block',textDecoration:'none',padding:'12px 24px'}}>
+                ⬇️ Scarica / Apri
+              </a>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ═══ QUIZ QUESTION ═══ */
+function QuizQ({q,idx,total,answered,setAnswered,onNext,onCorrect,onWrong}){
+  const [chosen,setChosen]=useState(null)
+  function answer(i){
+    if(answered)return
+    setChosen(i);setAnswered(true)
+    if(i===(q.cor??q.corretta))onCorrect?.()
+    else onWrong?.(q)
+  }
+  return(
+    <div className="quiz-card quiz-card-anim" style={{flex:1,overflowY:'auto'}}>
       <div className="quiz-q">{cleanText(q.dom||q.domanda||'')}</div>
-      {(q.opts||q.opzioni||[]).map((o,i)=>(
-        <button key={i} className={`quiz-opt ${answered?(i===(q.cor??q.corretta)?'correct':i===chosen?'wrong':''):''}`} onClick={()=>answer(i)} disabled={answered}>
-          <span className="quiz-letter">{['A','B','C','D'][i]}</span>{cleanText(o||'')}
-        </button>
-      ))}
+      <div className="quiz-opts-list">
+        {(q.opts||q.opzioni||[]).map((o,i)=>(
+          <button key={i} className={`quiz-opt ${answered?(i===(q.cor??q.corretta)?'correct':i===chosen?'wrong':''):''}`} onClick={()=>answer(i)} disabled={answered}>
+            <span className="quiz-letter">{['A','B','C','D'][i]}</span>
+            <span className="quiz-opt-text">{cleanText(o||'')}</span>
+          </button>
+        ))}
+      </div>
       {answered&&<div className="quiz-exp">💡 {cleanText(q.spieg||q.spiegazione||'')}</div>}
       {answered&&<button className="btn-primary" style={{marginTop:14}} onClick={onNext}>{idx+1<total?'Prossima →':'Vedi risultato'}</button>}
     </div>

@@ -64,7 +64,7 @@ module.exports = async function handler(req, res) {
       .limit(1)
       .single()
 
-    if (!prov) return res.status(400).json({ error: 'Provider OpenAI non configurato. La trascrizione audio richiede OpenAI.' })
+    if (!prov) return res.status(400).json({ error: 'Trascrizione audio non disponibile: aggiungi un provider OpenAI nel Pannello Admin per usare Whisper.' })
 
     const apiKey = decrypt(prov.api_key_encrypted, prov.iv, prov.auth_tag)
 
@@ -86,11 +86,14 @@ module.exports = async function handler(req, res) {
 
     if (!whisperRes.ok) {
       const err = await whisperRes.json().catch(() => ({}))
-      throw new Error(err.error?.message || `Whisper error ${whisperRes.status}`)
+      const msg = err.error?.message || `Whisper error ${whisperRes.status}`
+      console.error('[transcribe.js] Whisper error:', msg)
+      return res.status(500).json({ error: `Trascrizione fallita: ${msg}` })
     }
 
     const data = await whisperRes.json()
-    res.status(200).json({ transcript: data.text || '' })
+    if (!data.text) return res.status(200).json({ transcript: '', warning: 'Nessun testo rilevato nel file audio.' })
+    res.status(200).json({ transcript: data.text })
   } catch (e) {
     console.error('[transcribe.js]', e.message)
     res.status(500).json({ error: e.message })

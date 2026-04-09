@@ -439,21 +439,40 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   }
 
   /* ── AI CALL ── */
-  async function callAI(prompt,settings={}){
+  async function callAI(prompt,settings={},onProgress=null){
     const{images,textSources,urlSources,fileNames}=prepareFonti()
     const systemContext=buildSystemContext()
-    const res=await fetch('/api/ai',{
-      method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({prompt,images,textSources,urlSources,settings,systemContext,fileNames,userEmail:utente?.email||''})
-    })
-    if(!res.ok){
-      const e=await res.json().catch(()=>({}))
-      if(e.tokenLimitReached)setTokenUsage(p=>({...p,tokensUsed:e.tokensUsed||p.tokensUsed,tokenLimit:e.tokenLimit||p.tokenLimit,tokenResetDate:e.tokenResetDate||p.tokenResetDate}))
-      throw new Error(e.error||`Errore ${res.status}`)
+
+    const doFetch=async(p,imgs,extraText=[])=>{
+      const res=await fetch('/api/ai',{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({prompt:p,images:imgs,textSources:[...textSources,...extraText],urlSources,settings,systemContext,fileNames,userEmail:utente?.email||''})
+      })
+      if(!res.ok){
+        const e=await res.json().catch(()=>({}))
+        if(e.tokenLimitReached)setTokenUsage(p=>({...p,tokensUsed:e.tokensUsed||p.tokensUsed,tokenLimit:e.tokenLimit||p.tokenLimit,tokenResetDate:e.tokenResetDate||p.tokenResetDate}))
+        throw new Error(e.error||`Errore ${res.status}`)
+      }
+      const d=await res.json()
+      if(d.tokensUsed)setTokenUsage(p=>({...p,tokensUsed:d.tokensUsed,tokenLimit:d.tokenLimit||p.tokenLimit,tokenResetDate:d.tokenResetDate||p.tokenResetDate}))
+      return d.result
     }
-    const d=await res.json()
-    if(d.tokensUsed)setTokenUsage(p=>({...p,tokensUsed:d.tokensUsed,tokenLimit:d.tokenLimit||p.tokenLimit,tokenResetDate:d.tokenResetDate||p.tokenResetDate}))
-    return d.result
+
+    const BATCH=8
+    if(images.length<=BATCH) return doFetch(prompt,images)
+
+    // Batch mode
+    const batches=[]
+    for(let i=0;i<images.length;i+=BATCH)batches.push(images.slice(i,i+BATCH))
+    const partials=[]
+    for(let i=0;i<batches.length;i++){
+      onProgress?.(`Analisi batch ${i+1}/${batches.length}…`)
+      const ctx=partials.length>0?[`Risultati dai batch precedenti:\n${partials.join('\n\n')}`]:[]
+      partials.push(await doFetch(prompt,batches[i],ctx))
+    }
+    onProgress?.('Unificazione risultati…')
+    const mergePrompt=`Combina questi ${batches.length} risultati parziali in un unico output coerente nel formato richiesto. Rimuovi duplicati. Restituisci solo il contenuto finale nel formato corretto, senza testo aggiuntivo.\n\n${partials.map((r,i)=>`[Batch ${i+1}]:\n${r}`).join('\n\n---\n\n')}`
+    return doFetch(mergePrompt,[])
   }
 
   /* ── BUILD PROMPTS ── */
@@ -490,17 +509,19 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     const af=fonti.filter(f=>f.argomento_id===curArgId||f.argomento_id===null)
     if(!af.length){toast('Carica almeno una fonte prima');return}
 
+    const baseTitle={riassunto:'Riassunto',mappa:'Mappa Concettuale',punti:'Punti Chiave',flashcards:'Flash Cards',quiz:'Quiz',['quiz-aperta']:'Quiz Aperta'}[key]||key
     if(!isBackground){
-      setFullpage({title:{riassunto:'Riassunto',mappa:'Mappa Concettuale',punti:'Punti Chiave',flashcards:'Flash Cards',quiz:'Quiz',['quiz-aperta']:'Quiz Aperta'}[key]||key,type:'loading',data:null})
+      setFullpage({title:baseTitle,type:'loading',data:null})
     }
 
     const lenSettings={length:cfg.length||2}
+    const onProgress=msg=>setFullpage(fp=>fp?{...fp,title:msg}:fp)
 
     try{
       let result
-      if(key==='quiz'){result=await callAI(buildQuizPrompt(cfg,'multipla'),lenSettings)}
-      else if(key==='quiz-aperta'){result=await callAI(buildQuizPrompt(cfg,'aperta'),lenSettings)}
-      else{result=await callAI(buildPrompt(key,cfg),lenSettings)}
+      if(key==='quiz'){result=await callAI(buildQuizPrompt(cfg,'multipla'),lenSettings,onProgress)}
+      else if(key==='quiz-aperta'){result=await callAI(buildQuizPrompt(cfg,'aperta'),lenSettings,onProgress)}
+      else{result=await callAI(buildPrompt(key,cfg),lenSettings,onProgress)}
 
       await saveStorico(key,result)
 
@@ -629,7 +650,8 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       const cfg={num:r.quiz_num||5,diff:2,length:2}
       const mode=r.quiz_modalita||'multipla'
       setFullpage({title:'Generazione quiz ripasso…',type:'loading',data:null})
-      callAI(buildQuizPromptDirect(r,cfg,mode),{length:2}).then(async result=>{
+      const onProg=msg=>setFullpage(fp=>fp?{...fp,title:msg}:fp)
+      callAI(buildQuizPromptDirect(r,cfg,mode),{length:2},onProg).then(async result=>{
         await saveStorico(mode==='multipla'?'quiz':'quiz-aperta',result)
         if(mode==='multipla'){
           const p=parseQuiz(result)

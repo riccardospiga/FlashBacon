@@ -39,8 +39,7 @@ const STATUS_MSGS = {
   uploading:    '📤 Caricamento file...',
   transcribing: '🎤 Trascrizione audio...',
   analyzing:    '🔍 Analisi in corso...',
-  batching:     '📊 Elaborazione risultati...',
-  finishing:    '✅ Quasi pronto...',
+  finishing:    '✅ Unificazione risultati...',
 }
 
 function isYouTubeUrl(url) {
@@ -320,51 +319,47 @@ OUTPUT FORMAT:
 
       const prompt = `Materials to organize (index and name):\n${fileList}\n\nExisting subjects in the user's library:\n${existingList}\n\nAnalyze all materials above and return the JSON structure.`
 
-      // 4. Process images in batches of 4
-      setAnalyzeStatus('analyzing')
-      let result
-
-      const BATCH = 4
-      if (images.length <= BATCH) {
-        // Single call — standard path
-        const res = await fetch('/api/ai', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt, images, textSources, urlSources, settings: { length: 2 }, systemContext, fileNames: fileList })
-        })
-        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Errore AI') }
-        result = (await res.json()).result
-
-      } else {
-        // Multiple batches: describe each batch first, then final analysis
-        setAnalyzeStatus('batching')
-        const batchDescriptions = []
-        for (let i = 0; i < images.length; i += BATCH) {
-          const batch = images.slice(i, i + BATCH)
-          const batchRes = await fetch('/api/ai', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              prompt: `Describe briefly (1-2 sentences each) what you see in these ${batch.length} image(s), in Italian. Focus on academic subject matter.`,
-              images: batch, textSources: [], urlSources: [], settings: { length: 1 },
-              systemContext: 'Describe images briefly in Italian for academic categorization.',
-              fileNames: ''
-            })
-          })
-          if (batchRes.ok) {
-            const bd = await batchRes.json()
-            batchDescriptions.push(`[Descrizione immagini ${i + 1}-${Math.min(i + BATCH, images.length)}]: ${bd.result}`)
-          }
-        }
-
-        setAnalyzeStatus('finishing')
+      // 4. Process images in batches of 8
+      const BATCH = 8
+      const doAICall = async (p, imgs, extraText = [], sysCtx = systemContext) => {
         const res = await fetch('/api/ai', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            prompt, images: [], textSources: [...textSources, ...batchDescriptions],
-            urlSources, settings: { length: 2 }, systemContext, fileNames: fileList
+            prompt: p, images: imgs,
+            textSources: [...textSources, ...extraText],
+            urlSources, settings: { length: 2 }, systemContext: sysCtx, fileNames: fileList,
+            userEmail: utente?.email || ''
           })
         })
         if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Errore AI') }
-        result = (await res.json()).result
+        return (await res.json()).result
+      }
+
+      let result
+      setAnalyzeStatus('analyzing')
+
+      if (images.length <= BATCH) {
+        result = await doAICall(prompt, images)
+
+      } else {
+        // Batched: each batch gets the full prompt + its images + partial results from previous batches
+        const batches = []
+        for (let i = 0; i < images.length; i += BATCH) batches.push(images.slice(i, i + BATCH))
+
+        const partials = []
+        for (let i = 0; i < batches.length; i++) {
+          setAnalyzeStatus(`Analisi batch ${i + 1}/${batches.length}…`)
+          const ctx = partials.length > 0
+            ? [`Risultati JSON parziali dai batch precedenti:\n${partials.join('\n\n')}`]
+            : []
+          partials.push(await doAICall(prompt, batches[i], ctx))
+        }
+
+        // Final merge: combine all partial JSON results into one coherent structure
+        setAnalyzeStatus('finishing')
+        const mergeSys = systemContext + '\nCombina i risultati JSON parziali in un unico JSON coerente, unendo nuove_materie e aggiunte_esistenti. Rimuovi duplicati. Restituisci SOLO JSON valido.'
+        const mergePrompt = `Unifica questi ${batches.length} risultati parziali JSON in un\'unica struttura coerente:\n\n${partials.map((r, i) => `[Batch ${i + 1}]:\n${r}`).join('\n\n---\n\n')}\n\nExisting subjects:\n${prompt.split('Existing subjects:\n')[1] || ''}`
+        result = await doAICall(mergePrompt, [], [], mergeSys)
       }
 
       setAnalyzeStatus('finishing')
@@ -668,15 +663,17 @@ OUTPUT FORMAT:
           <div className="up-body up-analyzing">
             <div className="ai-spinner" style={{width:56,height:56,borderWidth:4}}/>
             <p style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:'1.05rem',color:'var(--ink)'}}>
-              {STATUS_MSGS[analyzeStatus] || 'Elaborazione in corso…'}
+              {STATUS_MSGS[analyzeStatus] || analyzeStatus || 'Elaborazione in corso…'}
             </p>
             <p style={{fontSize:'.85rem',color:'var(--muted)',textAlign:'center',maxWidth:260,lineHeight:1.6}}>
               Analisi di {items.length} {items.length === 1 ? 'file' : 'file'} in corso
             </p>
             <div className="analyze-steps">
-              {['uploading','transcribing','analyzing','batching','finishing'].map((s, i) => {
-                const steps = ['uploading','transcribing','analyzing','batching','finishing']
-                const currentIdx = steps.indexOf(analyzeStatus)
+              {['uploading','transcribing','analyzing','finishing'].map((s, i) => {
+                const steps = ['uploading','transcribing','analyzing','finishing']
+                // treat any dynamic batch status as 'analyzing'
+                const normalizedStatus = STATUS_MSGS[analyzeStatus] ? analyzeStatus : 'analyzing'
+                const currentIdx = steps.indexOf(normalizedStatus)
                 const isDone = i < currentIdx
                 const isCurrent = i === currentIdx
                 return (

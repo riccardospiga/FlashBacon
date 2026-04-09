@@ -469,16 +469,34 @@ body {
   padding: 2px 0;
 }
 
+/* ═══ ARGOMENTO SCREEN — fixed chrome ═══ */
+.arg-screen {
+  height: 100dvh;
+  overflow: hidden;
+}
+
 /* ═══ ARGOMENTO CONTENT ═══ */
 .arg-content {
   flex: 1; display: flex; flex-direction: column;
   overflow: hidden; background: var(--bg);
+  min-height: 0;
 }
+
+/* Mobile: one tab panel visible at a time */
+.arg-tab-panel {
+  display: none;
+  flex: 1; flex-direction: column;
+  overflow: hidden; min-width: 0; min-height: 0;
+}
+.arg-tab-panel.active { display: flex; }
+
 .arg-body {
   flex: 1; padding: 16px 20px 20px;
   display: flex; flex-direction: column; gap: 14px;
   overflow-y: auto;
+  scrollbar-width: none;
 }
+.arg-body::-webkit-scrollbar { display: none; }
 
 /* ═══ ARGOMENTO BOTTOM NAV ═══ */
 .arg-bottom-nav {
@@ -508,12 +526,14 @@ body {
 /* ═══ CHAT TAB (pinned input) ═══ */
 .arg-chat-container {
   flex: 1; display: flex; flex-direction: column;
-  padding: 16px 20px 12px; gap: 10px; overflow: hidden;
+  padding: 16px 20px 12px; gap: 10px; overflow: hidden; min-height: 0;
 }
 .arg-chat-messages {
   flex: 1; overflow-y: auto; display: flex; flex-direction: column;
-  gap: 10px; padding-bottom: 6px;
+  gap: 10px; padding-bottom: 6px; min-height: 0;
+  scrollbar-width: none;
 }
+.arg-chat-messages::-webkit-scrollbar { display: none; }
 
 /* ═══ LAB TAB ═══ */
 .lab-section-label {
@@ -1596,5 +1616,46 @@ body {
     content: '';
     position: fixed; inset: 0; z-index: -1;
     background: radial-gradient(ellipse at 50% 20%, rgba(108,99,255,.12) 0%, transparent 70%);
+  }
+}
+
+/* ═══ DESKTOP 3-COLUMN ARGOMENTO ═══ */
+@media (min-width: 769px) {
+  /* Expand root + shell for argomento screen */
+  body:has(.arg-screen) #root,
+  body:has(.arg-screen) .app-shell {
+    max-width: 100%;
+  }
+
+  .arg-content {
+    flex-direction: row;
+  }
+
+  /* All 3 panels visible side by side */
+  .arg-tab-panel {
+    display: flex !important;
+    flex: 1;
+    border-right: 1px solid var(--border);
+    min-width: 0;
+  }
+  .arg-tab-panel:last-child { border-right: none; }
+
+  /* Column label strip */
+  .arg-tab-panel > .arg-body,
+  .arg-tab-panel > .arg-chat-container {
+    border-top: none;
+  }
+
+  /* Hide bottom nav on desktop */
+  .arg-bottom-nav { display: none; }
+
+  /* Subtle column header via pseudo — Fonti / Chat / Lab */
+  .arg-tab-panel:nth-child(1)::before,
+  .arg-tab-panel:nth-child(2)::before,
+  .arg-tab-panel:nth-child(3)::before {
+    content: '';
+    display: block; height: 3px; flex-shrink: 0;
+    background: var(--gradient);
+    opacity: .55;
   }
 }

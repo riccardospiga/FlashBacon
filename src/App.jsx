@@ -870,7 +870,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     </div>}
 
     {/* ARGOMENTO DETAIL */}
-    {screen==='argomento'&&<div className="screen anim">
+    {screen==='argomento'&&<div className="screen anim arg-screen">
 
       {/* ── Header ── */}
       <div className="arg-header">
@@ -897,7 +897,8 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       <div className="arg-content">
 
         {/* ─ FONTI ─ */}
-        {argTab==='fonti'&&<div className="arg-body">
+        <div className={`arg-tab-panel${argTab==='fonti'?' active':''}`}>
+        <div className="arg-body">
           <button className="fonti-add-btn" onClick={()=>setShowFontiUpload(true)}>
             <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
             Aggiungi fonti
@@ -938,10 +939,12 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
               </div>
             )
           })}
-        </div>}
+        </div>
+        </div>
 
         {/* ─ CHAT ─ */}
-        {argTab==='chat'&&<div className="arg-chat-container">
+        <div className={`arg-tab-panel${argTab==='chat'?' active':''}`}>
+        <div className="arg-chat-container">
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
             <span style={{fontSize:'.78rem',fontWeight:600,color:'var(--muted)'}}>Chat con le tue fonti</span>
             <button className="chat-prompt-btn" onClick={()=>setSheetPromptMode(true)}>
@@ -969,10 +972,12 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
               <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>
             </button>
           </div>
-        </div>}
+        </div>
+        </div>
 
         {/* ─ LAB ─ */}
-        {argTab==='lab'&&<div className="arg-body">
+        <div className={`arg-tab-panel${argTab==='lab'?' active':''}`}>
+        <div className="arg-body">
           {activeProvider?.provider==='deepseek'&&argFonti.some(f=>f.tipo==='file')&&<div style={{background:'rgba(248,113,113,.08)',border:'1.5px solid rgba(248,113,113,.2)',borderRadius:12,padding:'10px 14px',fontSize:'.82rem',color:'#F87171'}}>⚠️ DeepSeek non supporta file. Solo testo e link funzioneranno.</div>}
           {aiBlocked&&<div style={{background:'rgba(239,68,68,.08)',border:'1.5px solid rgba(239,68,68,.2)',borderRadius:12,padding:'10px 14px',fontSize:'.82rem',color:'#ef4444',fontWeight:600}}>🚫 Limite token raggiunto. Le funzioni AI sono disabilitate.</div>}
 
@@ -1029,7 +1034,8 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
               </div>
             )
           })}
-        </div>}
+        </div>
+        </div>
 
       </div>
 

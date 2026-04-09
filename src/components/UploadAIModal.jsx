@@ -395,23 +395,28 @@ OUTPUT FORMAT:
     setSaving(true)
     try {
       for (const mat of (proposal.nuove || [])) {
-        const { data: newMat } = await supabase.from('materie').insert({
+        const { data: newMat, error: matErr } = await supabase.from('materie').insert({
           utente_email: utente.email, nome: mat.nome, emoji: mat.emoji || '📚',
         }).select().single()
-        if (!newMat) continue
+        if (matErr || !newMat) {
+          console.error('[confirmSave] materie insert:', matErr?.message, mat.nome)
+          continue
+        }
 
         let firstArgId = null
-        for (const argNome of (mat.argomenti || [])) {
-          const { data: newArg } = await supabase.from('argomenti').insert({
-            materia_id: newMat.id, nome: argNome,
+        const validArgs = (mat.argomenti || []).filter(a => a?.trim())
+        for (const argNome of validArgs) {
+          const { data: newArg, error: argErr } = await supabase.from('argomenti').insert({
+            materia_id: newMat.id, nome: argNome.trim(),
           }).select().single()
+          if (argErr) { console.error('[confirmSave] argomenti insert:', argErr.message); continue }
           if (newArg && !firstArgId) firstArgId = newArg.id
         }
-        if (firstArgId) {
-          const uploadArgId = mat.argomenti?.length > 1 ? null : firstArgId
-          for (const idx of (mat.item_indices || [])) {
-            if (items[idx]) await uploadItem(items[idx], newMat.id, uploadArgId)
-          }
+
+        // Always upload items — even if no argomenti were created (use null argomento_id)
+        const uploadArgId = validArgs.length > 1 ? null : (firstArgId || null)
+        for (const idx of (mat.item_indices || [])) {
+          if (items[idx]) await uploadItem(items[idx], newMat.id, uploadArgId)
         }
       }
 
@@ -419,66 +424,89 @@ OUTPUT FORMAT:
         const mat = materie.find(m => m.id === add.materia_id)
         if (!mat) continue
         let firstArgId = null
-        for (const argNome of (add.argomenti || [])) {
-          const { data: newArg } = await supabase.from('argomenti').insert({
-            materia_id: mat.id, nome: argNome,
+        const validArgs = (add.argomenti || []).filter(a => a?.trim())
+        for (const argNome of validArgs) {
+          const { data: newArg, error: argErr } = await supabase.from('argomenti').insert({
+            materia_id: mat.id, nome: argNome.trim(),
           }).select().single()
+          if (argErr) { console.error('[confirmSave] argomenti insert (esistente):', argErr.message); continue }
           if (newArg && !firstArgId) firstArgId = newArg.id
         }
-        if (firstArgId) {
-          const uploadArgId = add.argomenti?.length > 1 ? null : firstArgId
-          for (const idx of (add.item_indices || [])) {
-            if (items[idx]) await uploadItem(items[idx], mat.id, uploadArgId)
-          }
+
+        const uploadArgId = validArgs.length > 1 ? null : (firstArgId || null)
+        for (const idx of (add.item_indices || [])) {
+          if (items[idx]) await uploadItem(items[idx], mat.id, uploadArgId)
         }
       }
 
       toast('✓ Salvato!')
       onComplete()
     } catch (e) {
+      console.error('[confirmSave] fatal:', e.message)
       setErr('Errore salvataggio: ' + e.message)
     }
     setSaving(false)
   }
 
   async function uploadItem(item, materiaId, argomentoId) {
+    console.log('[uploadItem]', item.type, item.name, { materiaId, argomentoId })
+
     if (item.type === 'file' || item.type === 'audio') {
-      // If pre-uploaded during analysis (text-only provider path), skip re-upload
+      // Pre-uploaded during analysis (text-only provider path) → skip storage, just write to DB
       if (item.preUploadedUrl) {
-        await supabase.from('fonti').insert({
+        const { error } = await supabase.from('fonti').insert({
           utente_email: utente.email, materia_id: materiaId, argomento_id: argomentoId,
           nome: item.name, url: item.preUploadedUrl,
           tipo: item.type === 'audio' ? 'audio' : 'file',
         })
+        if (error) console.error('[uploadItem] fonti insert (preUploaded):', error.message)
         return
       }
+
       const ext = getExt(item.name)
       const safeName = item.name.replace(/[^a-zA-Z0-9._-]/g, '_')
       let blob = item.file, ct = item.file.type || 'application/octet-stream'
-      if (isImgExt(ext)) { blob = await compressImg(item.file); ct = 'image/jpeg' }
+      if (isImgExt(ext)) {
+        try { blob = await compressImg(item.file); ct = 'image/jpeg' }
+        catch (ce) { console.warn('[uploadItem] compress failed:', ce.message) }
+      }
+
       const path = `${utente.id}/${argomentoId || materiaId}/${Date.now()}_${safeName}`
       const { error: ue } = await supabase.storage.from('fonti').upload(path, blob, { contentType: ct })
-      if (ue) return
-      const { data: { publicUrl } } = supabase.storage.from('fonti').getPublicUrl(path)
-      await supabase.from('fonti').insert({
+      if (ue) {
+        console.error('[uploadItem] storage upload error:', ue.message, path)
+        return
+      }
+
+      const { data: urlData } = supabase.storage.from('fonti').getPublicUrl(path)
+      const { error: ie } = await supabase.from('fonti').insert({
         utente_email: utente.email, materia_id: materiaId, argomento_id: argomentoId,
-        nome: item.name, url: publicUrl, tipo: item.type === 'audio' ? 'audio' : 'file',
+        nome: item.name, url: urlData.publicUrl, tipo: item.type === 'audio' ? 'audio' : 'file',
       })
+      if (ie) console.error('[uploadItem] fonti insert error:', ie.message)
+      else console.log('[uploadItem] ✓ saved', item.name)
+
     } else if (item.type === 'text') {
-      await supabase.from('fonti').insert({
+      const { error } = await supabase.from('fonti').insert({
         utente_email: utente.email, materia_id: materiaId, argomento_id: argomentoId,
         nome: item.name, url: '', testo: item.text, tipo: 'text',
       })
+      if (error) console.error('[uploadItem] text insert:', error.message)
+      else console.log('[uploadItem] ✓ saved text', item.name)
+
     } else if (item.type === 'url') {
-      await supabase.from('fonti').insert({
+      const { error } = await supabase.from('fonti').insert({
         utente_email: utente.email, materia_id: materiaId, argomento_id: argomentoId,
         nome: item.name, url: item.url, tipo: 'url',
       })
+      if (error) console.error('[uploadItem] url insert:', error.message)
+
     } else if (item.type === 'youtube') {
-      await supabase.from('fonti').insert({
+      const { error } = await supabase.from('fonti').insert({
         utente_email: utente.email, materia_id: materiaId, argomento_id: argomentoId,
         nome: item.name, url: item.url, tipo: 'youtube',
       })
+      if (error) console.error('[uploadItem] youtube insert:', error.message)
     }
   }
 

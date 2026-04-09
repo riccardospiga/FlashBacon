@@ -53,7 +53,7 @@ function buildLengthDesc(length) {
   return (['breve e concisa', 'di media lunghezza', 'lunga e dettagliata'])[( length || 2) - 1]
 }
 
-async function callGemini(apiKey, model, prompt, imageUrls, systemPrompt) {
+async function callGemini(apiKey, model, prompt, imageUrls, systemPrompt, maxTokens=4096) {
   const parts = []
   for (const url of imageUrls) {
     if (isDataUrl(url)) {
@@ -68,14 +68,14 @@ async function callGemini(apiKey, model, prompt, imageUrls, systemPrompt) {
   parts.push({ text: systemPrompt + '\n\n' + prompt })
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts }] }) }
+    { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts }], generationConfig: { maxOutputTokens: maxTokens } }) }
   )
   const data = await res.json()
   if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
   return data.candidates?.[0]?.content?.parts?.[0]?.text || ''
 }
 
-async function callAnthropic(apiKey, model, prompt, imageUrls, systemPrompt) {
+async function callAnthropic(apiKey, model, prompt, imageUrls, systemPrompt, maxTokens=4096) {
   const content = []
   for (const url of imageUrls.slice(0, 5)) {
     try {
@@ -96,14 +96,14 @@ async function callAnthropic(apiKey, model, prompt, imageUrls, systemPrompt) {
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
-    body: JSON.stringify({ model, max_tokens: 4096, system: systemPrompt, messages: [{ role: 'user', content }] })
+    body: JSON.stringify({ model, max_tokens: maxTokens, system: systemPrompt, messages: [{ role: 'user', content }] })
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
   return data.content?.[0]?.text || ''
 }
 
-async function callOpenAI(apiKey, model, prompt, imageUrls, systemPrompt) {
+async function callOpenAI(apiKey, model, prompt, imageUrls, systemPrompt, maxTokens=4096) {
   const content = []
   for (const url of imageUrls) {
     if (isImage(url)) content.push({ type: 'image_url', image_url: { url, detail: 'high' } })
@@ -112,14 +112,14 @@ async function callOpenAI(apiKey, model, prompt, imageUrls, systemPrompt) {
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content }] })
+    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content }] })
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
   return data.choices?.[0]?.message?.content || ''
 }
 
-async function callMistral(apiKey, model, prompt, imageUrls, systemPrompt) {
+async function callMistral(apiKey, model, prompt, imageUrls, systemPrompt, maxTokens=4096) {
   const content = []
   for (const url of imageUrls) {
     if (isImage(url)) content.push({ type: 'image_url', image_url: url })
@@ -128,18 +128,18 @@ async function callMistral(apiKey, model, prompt, imageUrls, systemPrompt) {
   const res = await fetch('https://api.mistral.ai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content }] })
+    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content }] })
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
   return data.choices?.[0]?.message?.content || ''
 }
 
-async function callDeepSeek(apiKey, model, prompt, systemPrompt) {
+async function callDeepSeek(apiKey, model, prompt, systemPrompt, maxTokens=4096) {
   const res = await fetch('https://api.deepseek.com/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, max_tokens: 4096, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }] })
+    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }] })
   })
   const data = await res.json()
   if (!res.ok) throw new Error(data.error?.message || JSON.stringify(data))
@@ -151,6 +151,7 @@ module.exports = async function handler(req, res) {
   try {
     const { prompt, images = [], textSources = [], urlSources = [], settings = {}, systemContext = '', fileNames = '' } = req.body
     if (!prompt) return res.status(400).json({ error: 'Prompt mancante' })
+    const maxTokens = Math.min(settings.maxTokens || 4096, 4096)
 
     // Fetch URL sources as text
     const urlTexts = await Promise.all(urlSources.map(fetchUrlText))
@@ -168,11 +169,11 @@ module.exports = async function handler(req, res) {
 
     let result = ''
     switch (prov.provider) {
-      case 'anthropic': result = await callAnthropic(apiKey, prov.modello, prompt, images, sysPrompt); break
-      case 'openai':    result = await callOpenAI(apiKey, prov.modello, prompt, images, sysPrompt);    break
-      case 'google':    result = await callGemini(apiKey, prov.modello, prompt, images, sysPrompt);    break
-      case 'mistral':   result = await callMistral(apiKey, prov.modello, prompt, images, sysPrompt);   break
-      case 'deepseek':  result = await callDeepSeek(apiKey, prov.modello, prompt, sysPrompt);          break
+      case 'anthropic': result = await callAnthropic(apiKey, prov.modello, prompt, images, sysPrompt, maxTokens); break
+      case 'openai':    result = await callOpenAI(apiKey, prov.modello, prompt, images, sysPrompt, maxTokens);    break
+      case 'google':    result = await callGemini(apiKey, prov.modello, prompt, images, sysPrompt, maxTokens);    break
+      case 'mistral':   result = await callMistral(apiKey, prov.modello, prompt, images, sysPrompt, maxTokens);   break
+      case 'deepseek':  result = await callDeepSeek(apiKey, prov.modello, prompt, sysPrompt, maxTokens);          break
       default: throw new Error(`Provider sconosciuto: ${prov.provider}`)
     }
 

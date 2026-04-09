@@ -176,7 +176,8 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   const [quizScore,setQuizScore]=useState(0)
   const [quizWrong,setQuizWrong]=useState([])
   const [openAnswers,setOpenAnswers]=useState({})
-  const [openRevealed,setOpenRevealed]=useState({})
+  const [openFeedback,setOpenFeedback]=useState({})   // {idx: {loading,text}}
+  const [openFinalEval,setOpenFinalEval]=useState(null) // {loading,text} | null
 
   // FC
   const [fcCards,setFcCards]=useState([])
@@ -498,7 +499,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       else if(key==='quiz'){const p=parseQuiz(result);setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([]);setFullpage({title:'Quiz',type:'quiz',data:p})}
       else if(key==='quiz-aperta'){
         const qs=parseOpenQuiz(result)
-        setQuizData(qs);setQuizApertaIdx(0);setOpenAnswers({});setOpenRevealed({});setFullpage({title:'Quiz Aperta',type:'quiz-aperta',data:qs})
+        setQuizData(qs);setQuizApertaIdx(0);setOpenAnswers({});setOpenFeedback({});setOpenFinalEval(null);setFullpage({title:'Quiz Aperta',type:'quiz-aperta',data:qs})
       }
       else setFullpage({title:'Punti Chiave',type:'text',data:result})
     }catch(e){
@@ -549,7 +550,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     if(s.tipo==='mappa'){const d=parseMappa(s.contenuto);setMappaData(d);setExpandedNodes(new Set());setFullpage({title:'Mappa Concettuale',type:'mappa',data:d});return}
     if(s.tipo==='riassunto'){const d=parseRiassunto(s.contenuto);setRiassuntoData(d);setExpandedSecs(new Set(d.map((_,i)=>i)));setFullpage({title:'Riassunto',type:'riassunto',data:d});return}
     if(s.tipo==='quiz'){const p=parseQuiz(s.contenuto);if(p.length){setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([]);setFullpage({title:'Quiz',type:'quiz',data:p});return}}
-    if(s.tipo==='quiz-aperta'){const qs=parseOpenQuiz(s.contenuto);if(qs.length){setQuizData(qs);setQuizApertaIdx(0);setOpenAnswers({});setOpenRevealed({});setFullpage({title:'Quiz Aperta',type:'quiz-aperta',data:qs});return}}
+    if(s.tipo==='quiz-aperta'){const qs=parseOpenQuiz(s.contenuto);if(qs.length){setQuizData(qs);setQuizApertaIdx(0);setOpenAnswers({});setOpenFeedback({});setOpenFinalEval(null);setFullpage({title:'Quiz Aperta',type:'quiz-aperta',data:qs});return}}
     setFullpage({title:s.tipo,type:'text',data:s.contenuto})
   }
 
@@ -619,7 +620,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
           setFullpage({title:'Quiz Ripasso',type:'quiz',data:p})
         }else{
           const qs=parseOpenQuiz(result)
-          setQuizData(qs);setQuizApertaIdx(0);setOpenAnswers({});setOpenRevealed({})
+          setQuizData(qs);setQuizApertaIdx(0);setOpenAnswers({});setOpenFeedback({});setOpenFinalEval(null)
           setFullpage({title:'Quiz Aperta Ripasso',type:'quiz-aperta',data:qs})
         }
       }).catch(e=>{setFullpage({title:'Errore',type:'text',data:'❌ '+e.message})})
@@ -633,6 +634,49 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     const num=cfg.num||5
     if(mode==='multipla')return`Materia: "${mat?.nome}" — Argomento: "${arg?.nome||'generale'}"\n\nCrea ${num} domande a risposta multipla ${dd} in italiano basate sulle fonti.\n\nFORMATO:\nDOMANDA: [testo]\nA) [opzione]\nB) [opzione]\nC) [opzione]\nD) [opzione]\nCORRECTA: [A/B/C/D]\nSPIEGAZIONE: [spiegazione]\n---`
     return`Materia: "${mat?.nome}" — Argomento: "${arg?.nome||'generale'}"\n\nCrea ${num} domande a risposta aperta ${dd} in italiano.\n\nFORMATO:\nDOMANDA: [testo]\nRISPOSTA: [risposta]\n---`
+  }
+
+  /* ── QUIZ APERTA — AI EVALUATION ── */
+  const EVAL_SYS='Sei un professore AI. Valuta la risposta dello studente in italiano. Sii conciso, diretto e incoraggiante. Non usare asterischi (*) nel testo.'
+
+  async function evalQuizOpen(idx){
+    const q=quizData[idx]
+    const risposta=(openAnswers[idx]||'').trim()
+    if(!risposta)return
+    setOpenFeedback(p=>({...p,[idx]:{loading:true,text:''}}))
+    try{
+      const domanda=q.dom||q.domanda||''
+      const attesa=q.risp||q.risposta||''
+      const prompt=`Domanda: ${domanda}\nRisposta attesa: ${attesa}\nRisposta studente: ${risposta}\n\nDai un feedback breve (massimo 3 frasi): cosa è corretto, cosa migliorare, voto su 10.`
+      const res=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({prompt,images:[],textSources:[],urlSources:[],settings:{length:1,maxTokens:300},systemContext:EVAL_SYS,fileNames:''})})
+      const d=await res.json()
+      const text=(d.result||'Errore nella valutazione.').replace(/\*+/g,'')
+      setOpenFeedback(p=>({...p,[idx]:{loading:false,text}}))
+    }catch(e){
+      setOpenFeedback(p=>({...p,[idx]:{loading:false,text:'❌ '+e.message}}))
+    }
+  }
+
+  async function evalAllQuiz(){
+    if(!quizData?.length)return
+    setOpenFinalEval({loading:true,text:''})
+    try{
+      const pairs=quizData.map((q,i)=>{
+        const domanda=q.dom||q.domanda||''
+        const attesa=q.risp||q.risposta||''
+        const risposta=(openAnswers[i]||'').trim()||'(nessuna risposta)'
+        return `Domanda ${i+1}: ${domanda}\nRisposta attesa: ${attesa}\nRisposta studente: ${risposta}`
+      }).join('\n\n---\n\n')
+      const prompt=`Valuta queste ${quizData.length} risposte. Per ognuna scrivi 1-2 frasi di feedback e voto su 10. Inizia ogni valutazione con "Domanda X:" su una riga.\n\n${pairs}`
+      const res=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({prompt,images:[],textSources:[],urlSources:[],settings:{length:2,maxTokens:600},systemContext:EVAL_SYS,fileNames:''})})
+      const d=await res.json()
+      const text=(d.result||'Errore.').replace(/\*+/g,'')
+      setOpenFinalEval({loading:false,text})
+    }catch(e){
+      setOpenFinalEval({loading:false,text:'❌ '+e.message})
+    }
   }
 
   /* ── ADMIN ── */
@@ -1173,7 +1217,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
             </div>}
             <button className="btn-primary" style={{maxWidth:220,marginTop:16}} onClick={()=>{setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([])}}>Riprova</button>
           </div>
-        ):<div className="quiz-fit">
+        ):<div className="quizm-fit">
           <div className="quiz-progressbar-wrap"><div className="quiz-progressbar" style={{width:`${(quizIdx/quizData.length)*100}%`}}/></div>
           <span className="quiz-counter">{quizIdx+1} / {quizData.length}</span>
           <QuizQ key={quizIdx} q={quizData[quizIdx]} idx={quizIdx} total={quizData.length} answered={quizAnswered} setAnswered={setQuizAnswered} onNext={()=>{setQuizIdx(i=>i+1);setQuizAnswered(false)}} onCorrect={()=>setQuizScore(s=>s+1)} onWrong={q=>setQuizWrong(p=>[...p,{qi:quizIdx,q}])}/>
@@ -1184,21 +1228,43 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
             <div className="quiz-score">
               <div className="quiz-score-circle" style={{fontSize:'1.2rem'}}>✓</div>
               <h2 style={{fontFamily:'Syne,sans-serif',fontWeight:800,fontSize:'1.3rem'}}>Completato!</h2>
-              <p style={{color:'var(--muted)'}}>Hai risposto a tutte le {quizData.length} domande.</p>
-              <button className="btn-primary" style={{maxWidth:220}} onClick={()=>{setQuizApertaIdx(0);setOpenAnswers({});setOpenRevealed({})}}>Riprova</button>
+              <p style={{color:'var(--muted)',marginBottom:16}}>Hai risposto a tutte le {quizData.length} domande.</p>
+              {!openFinalEval?(
+                <button className="btn-primary" style={{maxWidth:260}} onClick={evalAllQuiz}>🤖 Valuta tutto con AI</button>
+              ):openFinalEval.loading?(
+                <div style={{display:'flex',gap:10,alignItems:'center',color:'var(--muted)',fontSize:'.88rem'}}><Spinner/> Valutazione in corso…</div>
+              ):(
+                <div className="quiz-final-eval">
+                  <p className="quiz-final-eval-title">📊 Valutazione AI</p>
+                  <pre className="quiz-final-eval-text">{cleanText(openFinalEval.text)}</pre>
+                </div>
+              )}
+              <button className="btn-secondary" style={{marginTop:8,maxWidth:220}} onClick={()=>{setQuizApertaIdx(0);setOpenAnswers({});setOpenFeedback({});setOpenFinalEval(null)}}>Riprova</button>
             </div>
           ):(
             <div className="quiz-fit">
-              <div className="quiz-progress">{quizData.map((_,i)=><div key={i} className={`quiz-dot ${i<quizApertaIdx?'done':i===quizApertaIdx?'current':''}`}/>)}</div>
-              <div className="quiz-card" style={{flex:1,overflowY:'auto'}}>
-                <p style={{fontSize:'.76rem',color:'var(--muted)',fontWeight:600,marginBottom:10}}>Domanda {quizApertaIdx+1} di {quizData.length}</p>
+              <div className="quiz-progressbar-wrap"><div className="quiz-progressbar" style={{width:`${(quizApertaIdx/quizData.length)*100}%`}}/></div>
+              <span className="quiz-counter">{quizApertaIdx+1} / {quizData.length}</span>
+              <div key={quizApertaIdx} className="quiz-card quiz-card-anim" style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column'}}>
                 <div className="quiz-q">{cleanText(quizData[quizApertaIdx]?.dom||quizData[quizApertaIdx]?.domanda||'')}</div>
-                <textarea className="quiz-open-input" placeholder="Scrivi la tua risposta…" value={openAnswers[quizApertaIdx]||''} onChange={e=>setOpenAnswers(p=>({...p,[quizApertaIdx]:e.target.value}))}/>
-                {!openRevealed[quizApertaIdx]
-                  ?<button className="btn-sm primary" onClick={()=>setOpenRevealed(p=>({...p,[quizApertaIdx]:true}))}>Mostra risposta attesa</button>
-                  :<div className="quiz-reveal"><strong>Risposta attesa:</strong><br/>{cleanText(quizData[quizApertaIdx]?.risp||quizData[quizApertaIdx]?.risposta||'')}</div>
-                }
-                {openRevealed[quizApertaIdx]&&<button className="btn-primary" style={{marginTop:12}} onClick={()=>setQuizApertaIdx(i=>i+1)}>{quizApertaIdx+1<quizData.length?'Prossima →':'Vedi risultato'}</button>}
+                <textarea className="quiz-open-input" placeholder="Scrivi la tua risposta…"
+                  value={openAnswers[quizApertaIdx]||''}
+                  onChange={e=>setOpenAnswers(p=>({...p,[quizApertaIdx]:e.target.value}))}/>
+
+                {/* AI evaluation */}
+                {openFeedback[quizApertaIdx]?.loading&&(
+                  <div style={{display:'flex',gap:8,alignItems:'center',fontSize:'.84rem',color:'var(--muted)',marginBottom:10}}><Spinner/>Valutazione AI…</div>
+                )}
+                {openFeedback[quizApertaIdx]?.text&&(
+                  <div className="quiz-ai-feedback">{cleanText(openFeedback[quizApertaIdx].text)}</div>
+                )}
+                {!openFeedback[quizApertaIdx]&&(openAnswers[quizApertaIdx]||'').trim()&&(
+                  <button className="btn-sm primary" style={{marginBottom:10}} onClick={()=>evalQuizOpen(quizApertaIdx)}>✓ Valuta risposta</button>
+                )}
+
+                <button className="btn-primary" style={{marginTop:'auto',paddingTop:14}} onClick={()=>setQuizApertaIdx(i=>i+1)}>
+                  {quizApertaIdx+1<quizData.length?'Prossima →':'Vedi risultato'}
+                </button>
               </div>
             </div>
           )
@@ -1436,28 +1502,53 @@ function FontePreviewModal({fonte,onClose}){
   )
 }
 
-/* ═══ QUIZ QUESTION ═══ */
+/* ═══ QUIZ QUESTION (multipla) ═══ */
 function QuizQ({q,idx,total,answered,setAnswered,onNext,onCorrect,onWrong}){
   const [chosen,setChosen]=useState(null)
+  const corIdx=q.cor??q.corretta??0
   function answer(i){
     if(answered)return
     setChosen(i);setAnswered(true)
-    if(i===(q.cor??q.corretta))onCorrect?.()
+    if(i===corIdx)onCorrect?.()
     else onWrong?.(q)
   }
+  const opts=q.opts||q.opzioni||[]
   return(
-    <div className="quiz-card quiz-card-anim" style={{flex:1,overflowY:'auto'}}>
-      <div className="quiz-q">{cleanText(q.dom||q.domanda||'')}</div>
-      <div className="quiz-opts-list">
-        {(q.opts||q.opzioni||[]).map((o,i)=>(
-          <button key={i} className={`quiz-opt ${answered?(i===(q.cor??q.corretta)?'correct':i===chosen?'wrong':''):''}`} onClick={()=>answer(i)} disabled={answered}>
-            <span className="quiz-letter">{['A','B','C','D'][i]}</span>
-            <span className="quiz-opt-text">{cleanText(o||'')}</span>
-          </button>
-        ))}
+    <div className="quizm-card quiz-card-anim">
+      {/* Question */}
+      <div className="quizm-question">{cleanText(q.dom||q.domanda||'')}</div>
+
+      {/* Options */}
+      <div className="quizm-opts">
+        {opts.map((o,i)=>{
+          let state=''
+          if(answered){
+            if(i===corIdx) state='correct'
+            else if(i===chosen) state='wrong'
+            else state='dim'
+          }
+          return(
+            <button key={i} className={`quizm-opt ${state}`} onClick={()=>answer(i)} disabled={answered}>
+              <span className="quizm-letter">{['A','B','C','D'][i]}</span>
+              <span className="quizm-opt-text">{cleanText(o||'')}</span>
+              {answered&&i===corIdx&&<span className="quizm-tick">✓</span>}
+              {answered&&i===chosen&&i!==corIdx&&<span className="quizm-tick">✗</span>}
+            </button>
+          )
+        })}
       </div>
-      {answered&&<div className="quiz-exp">💡 {cleanText(q.spieg||q.spiegazione||'')}</div>}
-      {answered&&<button className="btn-primary" style={{marginTop:14}} onClick={onNext}>{idx+1<total?'Prossima →':'Vedi risultato'}</button>}
+
+      {/* Explanation */}
+      {answered&&(q.spieg||q.spiegazione)&&(
+        <div className="quizm-exp">💡 {cleanText(q.spieg||q.spiegazione)}</div>
+      )}
+
+      {/* Next */}
+      {answered&&(
+        <button className="btn-primary" style={{marginTop:12,flexShrink:0}} onClick={onNext}>
+          {idx+1<total?'Prossima domanda →':'Vedi risultato'}
+        </button>
+      )}
     </div>
   )
 }

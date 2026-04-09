@@ -1,13 +1,95 @@
 export function parseQuiz(text) {
-  return text.split('---').map(b => b.trim()).filter(Boolean).map(block => {
+  if (!text) return []
+
+  // Strip markdown fences and leading/trailing whitespace
+  const clean = text
+    .replace(/```[\s\S]*?```/g, s => s.replace(/```\w*/g, '').replace(/```/g, ''))
+    .replace(/\*\*/g, '')
+    .trim()
+
+  // Split on separator lines: ---, ———, ─────, numbered separators, blank lines between blocks
+  const blocks = clean
+    .split(/\n\s*[-─—]{2,}\s*\n|\n\s*\n(?=\s*(?:DOMANDA|QUESTION|\d+[.)]\s))/i)
+    .map(b => b.trim())
+    .filter(Boolean)
+
+  const questions = []
+
+  for (const block of blocks) {
     const lines = block.split('\n').map(l => l.trim()).filter(Boolean)
-    const dom = lines.find(l => l.startsWith('DOMANDA:'))?.replace('DOMANDA:', '').trim() || ''
-    const opts = ['A','B','C','D'].map(l => lines.find(ln => ln.startsWith(l + ')'))?.replace(l + ')', '').trim() || '')
-    const corLet = lines.find(l => l.startsWith('CORRETTA:') || l.startsWith('CORR:'))?.replace(/CORRETTA:|CORR:/, '').trim() || 'A'
-    const cor = Math.max(0, ['A','B','C','D'].indexOf(corLet.toUpperCase().charAt(0)))
-    const spieg = lines.find(l => l.startsWith('SPIEGAZIONE:') || l.startsWith('SPIEG:'))?.replace(/SPIEGAZIONE:|SPIEG:/, '').trim() || ''
-    return { dom, opts, cor, spieg }
-  }).filter(q => q.dom && q.opts[0])
+    if (!lines.length) continue
+
+    // ── domanda ──
+    let dom = ''
+    for (const l of lines) {
+      // DOMANDA: text  or  1. DOMANDA: text  or  1) text (numbered question without keyword)
+      const m = l.match(/^(?:\d+[.)]\s*)?(?:DOMANDA|QUESTION|QUESITO)[:\s]+(.+)/i)
+      if (m) { dom = m[1].trim(); break }
+    }
+    if (!dom) {
+      // First line that isn't an option / keyword label
+      const first = lines.find(l =>
+        !/^[A-Da-d][).\s]|^\(?[A-Da-d]\)|^(CORRETTA|CORR|RISPOSTA|SPIEGAZIONE|SPIEG|EXPL)/i.test(l)
+      )
+      if (first) dom = first.replace(/^\d+[.)]\s*/, '').trim()
+    }
+
+    // ── options A-D ──
+    const opts = ['A', 'B', 'C', 'D'].map(letter => {
+      for (const l of lines) {
+        // A) text  /  A. text  /  A: text  /  (A) text  /  A - text
+        if (new RegExp(`^\\(?${letter}[).:\\-]\\s*`, 'i').test(l)) {
+          return l.replace(new RegExp(`^\\(?${letter}[).:\\-]\\s*`, 'i'), '').trim()
+        }
+      }
+      return ''
+    })
+
+    // ── correct answer ──
+    let corLet = ''
+    for (const l of lines) {
+      // CORRETTA: A  /  CORR: A  /  RISPOSTA CORRETTA: A  /  CORRECT: A  /  CORRETO: A
+      const m = l.match(/^(?:CORRETTA|CORR(?:ETTA)?O?|RISPOSTA\s*CORRETTA?|CORRECT(?:A)?|ANSWER)[:\s]+\(?([A-Da-d])[).:\s]*/i)
+      if (m) { corLet = m[1].toUpperCase(); break }
+      // fallback: line is just "A" or "A)" alone on its own after a correct-label block
+      const m2 = l.match(/^(?:CORRETTA|CORR|RISPOSTA)[:\s]*$/i)
+      if (m2) {
+        // next token might be on the same or next line — handled below
+      }
+    }
+    // fallback: scan for standalone letter answer
+    if (!corLet) {
+      for (const l of lines) {
+        const m = l.match(/^([A-Da-d])\s*$/)
+        if (m) { corLet = m[1].toUpperCase(); break }
+      }
+    }
+    const cor = corLet ? Math.max(0, ['A', 'B', 'C', 'D'].indexOf(corLet)) : 0
+
+    // ── spiegazione ──
+    let spieg = ''
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i]
+      if (/^(?:SPIEGAZIONE|SPIEG|EXPLANATION|EXPL|NOTA)[:\s]/i.test(l)) {
+        // may be multi-line: grab rest of this line + following non-keyword lines
+        const firstPart = l.replace(/^[^:]+:\s*/i, '').trim()
+        const extra = []
+        for (let j = i + 1; j < lines.length; j++) {
+          if (/^(?:DOMANDA|CORRETTA|CORR|QUESTION)[:\s]/i.test(lines[j])) break
+          extra.push(lines[j])
+        }
+        spieg = [firstPart, ...extra].filter(Boolean).join(' ')
+        break
+      }
+    }
+
+    // require at least a question and 2 options
+    if (dom && opts.filter(Boolean).length >= 2) {
+      questions.push({ dom, opts, cor, spieg })
+    }
+  }
+
+  return questions
 }
 
 export function parseFC(text) {

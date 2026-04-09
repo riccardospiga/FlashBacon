@@ -1267,29 +1267,36 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
           ))}
         </div>}
 
-        {fullpage.type==='quiz'&&quizData&&(quizIdx>=quizData.length?(
-          <div className="quiz-score">
-            <div className="quiz-score-circle">{quizScore}/{quizData.length}</div>
-            <h2 style={{fontFamily:'Syne,sans-serif',fontWeight:800,fontSize:'1.3rem'}}>Quiz completato!</h2>
-            <p style={{color:'var(--muted)',marginBottom:quizWrong.length?16:0}}>
-              Hai risposto correttamente a <strong>{quizScore}</strong> su {quizData.length}.
-            </p>
-            {quizWrong.length>0&&<div className="quiz-wrong-list">
-              <p className="quiz-wrong-title">❌ Risposte errate ({quizWrong.length})</p>
-              {quizWrong.map(({qi,q})=>(
-                <div key={qi} className="quiz-wrong-item">
-                  <div className="quiz-wrong-q">{cleanText(q.dom||q.domanda||'')}</div>
-                  <div className="quiz-wrong-ans">✓ {cleanText((q.opts||q.opzioni||[])[q.cor??q.corretta]||'')}</div>
-                </div>
-              ))}
-            </div>}
-            <button className="btn-primary" style={{maxWidth:220,marginTop:16}} onClick={()=>{setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([])}}>Riprova</button>
-          </div>
-        ):<div className="quizm-fit">
-          <div className="quiz-progressbar-wrap"><div className="quiz-progressbar" style={{width:`${(quizIdx/quizData.length)*100}%`}}/></div>
-          <span className="quiz-counter">{quizIdx+1} / {quizData.length}</span>
-          <QuizQ key={quizIdx} q={quizData[quizIdx]} idx={quizIdx} total={quizData.length} answered={quizAnswered} setAnswered={setQuizAnswered} onNext={()=>{setQuizIdx(i=>i+1);setQuizAnswered(false)}} onCorrect={()=>setQuizScore(s=>s+1)} onWrong={q=>setQuizWrong(p=>[...p,{qi:quizIdx,q}])}/>
-        </div>)}
+        {fullpage.type==='quiz'&&(
+          !quizData||quizData.length===0
+          ? <div className="quiz-score"><div className="quiz-score-circle" style={{fontSize:'2rem'}}>⚠️</div><p style={{color:'var(--muted)',textAlign:'center'}}>Impossibile leggere le domande. Riprova a generare il quiz.</p><button className="btn-primary" style={{maxWidth:220,marginTop:16}} onClick={()=>setFullpage(null)}>Chiudi</button></div>
+          : quizIdx>=quizData.length
+            ? <div className="quiz-score">
+                <div className="quiz-score-circle">{quizScore}/{quizData.length}</div>
+                <h2 style={{fontFamily:'Syne,sans-serif',fontWeight:800,fontSize:'1.3rem'}}>Quiz completato!</h2>
+                <p style={{color:'var(--muted)',marginBottom:quizWrong.length?16:0}}>
+                  Hai risposto correttamente a <strong>{quizScore}</strong> su {quizData.length}.
+                </p>
+                {quizWrong.length>0&&<div className="quiz-wrong-list">
+                  <p className="quiz-wrong-title">❌ Risposte errate ({quizWrong.length})</p>
+                  {quizWrong.map(({qi,q})=>(
+                    <div key={qi} className="quiz-wrong-item">
+                      <div className="quiz-wrong-q">{cleanText(q.dom||q.domanda||'')}</div>
+                      <div className="quiz-wrong-ans">✓ {cleanText((q.opts||q.opzioni||[])[q.cor??q.corretta]||'')}</div>
+                    </div>
+                  ))}
+                </div>}
+                <button className="btn-primary" style={{maxWidth:220,marginTop:16}} onClick={()=>{setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([])}}>Riprova</button>
+              </div>
+            : <div className="quizm-fit">
+                <div className="quiz-progressbar-wrap"><div className="quiz-progressbar" style={{width:`${(quizIdx/quizData.length)*100}%`}}/></div>
+                <span className="quiz-counter">{quizIdx+1} / {quizData.length}</span>
+                <QuizQ key={quizIdx} q={quizData[quizIdx]} idx={quizIdx} total={quizData.length}
+                  onNext={()=>{setQuizIdx(i=>i+1);setQuizAnswered(false)}}
+                  onCorrect={()=>setQuizScore(s=>s+1)}
+                  onWrong={q=>setQuizWrong(p=>[...p,{qi:quizIdx,q}])}/>
+              </div>
+        )}
 
         {fullpage.type==='quiz-aperta'&&quizData&&quizData.length>0&&(
           quizApertaIdx>=quizData.length?(
@@ -1573,22 +1580,21 @@ function FontePreviewModal({fonte,onClose}){
 }
 
 /* ═══ QUIZ QUESTION (multipla) ═══ */
-function QuizQ({q,idx,total,answered,setAnswered,onNext,onCorrect,onWrong}){
+function QuizQ({q,idx,total,onNext,onCorrect,onWrong}){
   const [chosen,setChosen]=useState(null)
-  const corIdx=q.cor??q.corretta??0
+  const corIdx=typeof q.cor==='number'?q.cor:typeof q.corretta==='number'?q.corretta:0
+  const answered=chosen!==null
   function answer(i){
     if(answered)return
-    setChosen(i);setAnswered(true)
+    setChosen(i)
     if(i===corIdx)onCorrect?.()
     else onWrong?.(q)
   }
-  const opts=q.opts||q.opzioni||[]
+  const opts=(q.opts||q.opzioni||[]).filter((o,i)=>i<4)
+  if(!opts.length)return null
   return(
     <div className="quizm-card quiz-card-anim">
-      {/* Question */}
       <div className="quizm-question">{cleanText(q.dom||q.domanda||'')}</div>
-
-      {/* Options */}
       <div className="quizm-opts">
         {opts.map((o,i)=>{
           let state=''
@@ -1607,13 +1613,9 @@ function QuizQ({q,idx,total,answered,setAnswered,onNext,onCorrect,onWrong}){
           )
         })}
       </div>
-
-      {/* Explanation */}
       {answered&&(q.spieg||q.spiegazione)&&(
         <div className="quizm-exp">💡 {cleanText(q.spieg||q.spiegazione)}</div>
       )}
-
-      {/* Next */}
       {answered&&(
         <button className="btn-primary" style={{marginTop:12,flexShrink:0}} onClick={onNext}>
           {idx+1<total?'Prossima domanda →':'Vedi risultato'}

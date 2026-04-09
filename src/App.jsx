@@ -178,6 +178,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   const [openAnswers,setOpenAnswers]=useState({})
   const [openFeedback,setOpenFeedback]=useState({})   // {idx: {loading,text}}
   const [openFinalEval,setOpenFinalEval]=useState(null) // {loading,text} | null
+  const [tokenUsage,setTokenUsage]=useState({tokensUsed:0,tokenLimit:0,tokenResetDate:null})
 
   // FC
   const [fcCards,setFcCards]=useState([])
@@ -326,6 +327,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       const{data:args}=await supabase.from('argomenti').select('*').order('created_at')
       setArgomenti(args||[])
       await loadRipassi(u.email)
+      loadTokenUsage(u.email)
       const isNew=!localStorage.getItem('fb_onb_'+u.id)
       if(isNew){setOnb(true);setOnbStep(0)}
       const ss=sessionStorage.getItem('fb_screen'),sm=sessionStorage.getItem('fb_mat'),sa=sessionStorage.getItem('fb_arg')
@@ -368,6 +370,14 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   }
   async function loadProviders(){const{data}=await supabase.from('ai_providers').select('*').order('created_at');setProviders(data||[])}
   async function loadRipassi(email){const{data}=await supabase.from('studio_pianificato').select('*').eq('utente_email',email).order('created_at',{ascending:true});setRipassi(data||[])}
+  async function loadTokenUsage(email){
+    const{data}=await supabase.from('profili').select('token_usati,token_reset_date,ruolo').eq('email',email).single()
+    if(data){
+      const role=data.ruolo||'beta'
+      const limit={owner:150000,beta:10000}[role]??10000
+      setTokenUsage({tokensUsed:data.token_usati||0,tokenLimit:limit,tokenResetDate:data.token_reset_date})
+    }
+  }
 
   /* ── NAVIGATION ── */
   function navTo(sc){
@@ -434,10 +444,16 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     const systemContext=buildSystemContext()
     const res=await fetch('/api/ai',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({prompt,images,textSources,urlSources,settings,systemContext,fileNames})
+      body:JSON.stringify({prompt,images,textSources,urlSources,settings,systemContext,fileNames,userEmail:utente?.email||''})
     })
-    if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.error||`Errore ${res.status}`)}
-    const d=await res.json();return d.result
+    if(!res.ok){
+      const e=await res.json().catch(()=>({}))
+      if(e.tokenLimitReached)setTokenUsage(p=>({...p,tokensUsed:e.tokensUsed||p.tokensUsed,tokenLimit:e.tokenLimit||p.tokenLimit,tokenResetDate:e.tokenResetDate||p.tokenResetDate}))
+      throw new Error(e.error||`Errore ${res.status}`)
+    }
+    const d=await res.json()
+    if(d.tokensUsed)setTokenUsage(p=>({...p,tokensUsed:d.tokensUsed,tokenLimit:d.tokenLimit||p.tokenLimit,tokenResetDate:d.tokenResetDate||p.tokenResetDate}))
+    return d.result
   }
 
   /* ── BUILD PROMPTS ── */
@@ -590,9 +606,10 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       const mode=r.quiz_modalita||'multipla'
       const prompt=buildQuizPromptDirect(r,cfg,mode)
       const systemContext=buildSystemContext()
-      const res=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,images,textSources,urlSources,settings:{length:2},systemContext,fileNames})})
+      const res=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,images,textSources,urlSources,settings:{length:2},systemContext,fileNames,userEmail:utente?.email||''})})
       if(!res.ok)return
       const d=await res.json()
+      if(d.tokensUsed)setTokenUsage(p=>({...p,tokensUsed:d.tokensUsed,tokenLimit:d.tokenLimit||p.tokenLimit,tokenResetDate:d.tokenResetDate||p.tokenResetDate}))
       // Save to storico for the argomento (Lab)
       await supabase.from('storico').insert({utente_email:utente.email,materia_id:r.materia_id,argomento_id:argId,tipo:mode==='multipla'?'quiz':'quiz-aperta',contenuto:d.result})
       showAIDone('✅ Quiz ripasso generato e salvato nel Lab!')
@@ -649,8 +666,9 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       const attesa=q.risp||q.risposta||''
       const prompt=`Domanda: ${domanda}\nRisposta attesa: ${attesa}\nRisposta studente: ${risposta}\n\nDai un feedback breve (massimo 3 frasi): cosa è corretto, cosa migliorare, voto su 10.`
       const res=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({prompt,images:[],textSources:[],urlSources:[],settings:{length:1,maxTokens:300},systemContext:EVAL_SYS,fileNames:''})})
+        body:JSON.stringify({prompt,images:[],textSources:[],urlSources:[],settings:{length:1,maxTokens:300},systemContext:EVAL_SYS,fileNames:'',userEmail:utente?.email||''})})
       const d=await res.json()
+      if(d.tokensUsed)setTokenUsage(p=>({...p,tokensUsed:d.tokensUsed,tokenLimit:d.tokenLimit||p.tokenLimit,tokenResetDate:d.tokenResetDate||p.tokenResetDate}))
       const text=(d.result||'Errore nella valutazione.').replace(/\*+/g,'')
       setOpenFeedback(p=>({...p,[idx]:{loading:false,text}}))
     }catch(e){
@@ -670,8 +688,9 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       }).join('\n\n---\n\n')
       const prompt=`Valuta queste ${quizData.length} risposte. Per ognuna scrivi 1-2 frasi di feedback e voto su 10. Inizia ogni valutazione con "Domanda X:" su una riga.\n\n${pairs}`
       const res=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({prompt,images:[],textSources:[],urlSources:[],settings:{length:2,maxTokens:600},systemContext:EVAL_SYS,fileNames:''})})
+        body:JSON.stringify({prompt,images:[],textSources:[],urlSources:[],settings:{length:2,maxTokens:600},systemContext:EVAL_SYS,fileNames:'',userEmail:utente?.email||''})})
       const d=await res.json()
+      if(d.tokensUsed)setTokenUsage(p=>({...p,tokensUsed:d.tokensUsed,tokenLimit:d.tokenLimit||p.tokenLimit,tokenResetDate:d.tokenResetDate||p.tokenResetDate}))
       const text=(d.result||'Errore.').replace(/\*+/g,'')
       setOpenFinalEval({loading:false,text})
     }catch(e){
@@ -690,11 +709,19 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   const activeProvider=providers.find(p=>p.attivo)
   const argFonti=fonti.filter(f=>f.argomento_id===curArgId||f.argomento_id==null)
   const argStorico=storico.filter(s=>s.argomento_id===curArgId)
+  const aiBlocked=tokenUsage.tokenLimit>0&&tokenUsage.tokensUsed>=tokenUsage.tokenLimit
 
   /* ══════════════════════════════════════════
      JSX
   ══════════════════════════════════════════ */
   return(<div className="app-shell">
+
+    {/* AI BLOCKED BANNER */}
+    {aiBlocked&&screen!=='loading'&&screen!=='login'&&<div className="token-limit-banner">
+      🚫 Limite token raggiunto ({tokenUsage.tokensUsed.toLocaleString('it')} / {tokenUsage.tokenLimit.toLocaleString('it')}).
+      Reset il {tokenUsage.tokenResetDate||'—'}.
+      <button onClick={()=>navTo('profilo')} style={{marginLeft:8,background:'none',border:'none',color:'inherit',fontWeight:700,cursor:'pointer',textDecoration:'underline'}}>Dettagli</button>
+    </div>}
 
     {/* LOADING */}
     {screen==='loading'&&<div className="screen" style={{background:'var(--dark-bg)',alignItems:'center',justifyContent:'center',gap:32}}>
@@ -937,8 +964,8 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
             <button className="chat-len-btn" onClick={()=>setChatLength(l=>l%3+1)} title="Lunghezza risposta">
               {['S','M','L'][chatLength-1]}
             </button>
-            <input className="chat-input" value={chatInput} onChange={e=>setChatInput(e.target.value)} placeholder="Fai una domanda…" onKeyDown={e=>e.key==='Enter'&&sendChat()}/>
-            <button className="btn-send" onClick={sendChat} disabled={chatLoading}>
+            <input className="chat-input" value={chatInput} onChange={e=>setChatInput(e.target.value)} placeholder={aiBlocked?'Limite token raggiunto':'Fai una domanda…'} disabled={aiBlocked} onKeyDown={e=>e.key==='Enter'&&!aiBlocked&&sendChat()}/>
+            <button className="btn-send" onClick={sendChat} disabled={chatLoading||aiBlocked}>
               <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>
             </button>
           </div>
@@ -947,11 +974,12 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
         {/* ─ LAB ─ */}
         {argTab==='lab'&&<div className="arg-body">
           {activeProvider?.provider==='deepseek'&&argFonti.some(f=>f.tipo==='file')&&<div style={{background:'rgba(248,113,113,.08)',border:'1.5px solid rgba(248,113,113,.2)',borderRadius:12,padding:'10px 14px',fontSize:'.82rem',color:'#F87171'}}>⚠️ DeepSeek non supporta file. Solo testo e link funzioneranno.</div>}
+          {aiBlocked&&<div style={{background:'rgba(239,68,68,.08)',border:'1.5px solid rgba(239,68,68,.2)',borderRadius:12,padding:'10px 14px',fontSize:'.82rem',color:'#ef4444',fontWeight:600}}>🚫 Limite token raggiunto. Le funzioni AI sono disabilitate.</div>}
 
           <div className="lab-section-label">Genera con AI</div>
 
           {/* Quiz button — click = pick type, ⚙️ = settings */}
-          <div className="tool-card tool-card-wide" onClick={()=>setShowQuizPicker(true)}>
+          <div className={`tool-card tool-card-wide${aiBlocked?' tool-card-disabled':''}`} onClick={()=>!aiBlocked&&setShowQuizPicker(true)}>
             <div className="tool-icon">❓</div>
             <div>
               <div className="tool-name">Quiz</div>
@@ -967,7 +995,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
               {key:'mappa',icon:'🗺️',name:'Mappa concett.',desc:'Visuale interattiva'},
               {key:'punti',icon:'🎯',name:'Punti chiave',desc:'Concetti chiave'},
             ].map(t=>(
-              <div key={t.key} className="tool-card" onClick={()=>runTool(t.key,outputCfg,true)}>
+              <div key={t.key} className={`tool-card${aiBlocked?' tool-card-disabled':''}`} onClick={()=>!aiBlocked&&runTool(t.key,outputCfg,true)}>
                 <button className="tool-cfg-btn" onClick={e=>{e.stopPropagation();openToolCfg(t.key)}} title="Personalizza">⚙️</button>
                 <div>
                   <div className="tool-icon">{t.icon}</div>
@@ -1079,6 +1107,18 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
             <div key={p.id}><div style={{fontWeight:700,fontSize:'.9rem'}}>{p.nome_display}</div><div style={{fontSize:'.78rem',color:'var(--muted)',marginTop:2}}>{p.modello}</div></div>
           ))}
         </div>
+        {tokenUsage.tokenLimit>0&&<div style={{background:'var(--white)',borderRadius:16,padding:16,boxShadow:'0 2px 12px rgba(79,70,229,.06)'}}>
+          <div style={{fontSize:'.75rem',fontWeight:700,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'.5px',marginBottom:10}}>Utilizzo Token AI</div>
+          <div style={{display:'flex',justifyContent:'space-between',fontSize:'.85rem',marginBottom:8}}>
+            <span>{tokenUsage.tokensUsed.toLocaleString('it')} / {tokenUsage.tokenLimit.toLocaleString('it')} token</span>
+            <span style={{color:'var(--muted)'}}>{Math.round(tokenUsage.tokensUsed/tokenUsage.tokenLimit*100)}%</span>
+          </div>
+          <div style={{background:'var(--gray)',borderRadius:99,height:8,overflow:'hidden'}}>
+            <div style={{width:`${Math.min(100,Math.round(tokenUsage.tokensUsed/tokenUsage.tokenLimit*100))}%`,height:'100%',background:aiBlocked?'#ef4444':'var(--primary)',borderRadius:99,transition:'width .4s'}}/>
+          </div>
+          {tokenUsage.tokenResetDate&&<div style={{fontSize:'.75rem',color:'var(--muted)',marginTop:8}}>Reset il {tokenUsage.tokenResetDate}</div>}
+          {aiBlocked&&<div style={{marginTop:10,fontSize:'.82rem',color:'#ef4444',fontWeight:600}}>Limite raggiunto. Le funzioni AI sono disabilitate fino al reset.</div>}
+        </div>}
         <button className="btn-primary" onClick={()=>{saveSettings({chatLength,promptMode,outputCfg});toast('Salvato ✓');setScreen('profilo')}}>Salva</button>
       </div>
     </div>}
@@ -1413,6 +1453,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     {showUploadModal&&<UploadAIModal
       materie={materie}
       utente={utente}
+      aiBlocked={aiBlocked}
       onClose={()=>setShowUploadModal(false)}
       onComplete={async()=>{
         setShowUploadModal(false)
@@ -1430,6 +1471,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       curArgId={curArgId}
       utente={utente}
       materie={materie}
+      aiBlocked={aiBlocked}
       onClose={()=>setShowFontiUpload(false)}
       onComplete={async()=>{
         setShowFontiUpload(false)

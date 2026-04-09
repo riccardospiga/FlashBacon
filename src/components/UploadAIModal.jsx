@@ -110,7 +110,8 @@ function ItemChip({ item, onRemove }) {
 /* ══════ MAIN COMPONENT ══════ */
 export default function UploadAIModal({
   onClose, materie, utente, onComplete,
-  directUpload = false, curMateriaId, curArgId
+  directUpload = false, curMateriaId, curArgId,
+  aiBlocked = false
 }) {
   const [items, setItems]         = useState([])
   const [step, setStep]           = useState('upload')
@@ -579,7 +580,7 @@ OUTPUT FORMAT:
               : 'Conferma struttura'}
           </span>
           {!directUpload && step === 'upload' && items.length > 0 && (
-            <button className="btn-sm primary" onClick={analyze}>Analizza →</button>
+            <button className="btn-sm primary" onClick={analyze} disabled={aiBlocked}>Analizza →</button>
           )}
           {directUpload && items.length > 0 && (
             <button className="btn-sm primary" onClick={directSave} disabled={saving}>
@@ -649,8 +650,11 @@ OUTPUT FORMAT:
 
             {err && <p className="error-msg">{err}</p>}
 
+            {aiBlocked && !directUpload && (
+              <p style={{color:'#ef4444',fontSize:'.85rem',fontWeight:600,textAlign:'center'}}>🚫 Limite token raggiunto. Vai in Profilo → Impostazioni AI per i dettagli.</p>
+            )}
             {items.length > 0 && (
-              <button className="btn-primary" onClick={directUpload ? directSave : analyze} disabled={saving}>
+              <button className="btn-primary" onClick={directUpload ? directSave : analyze} disabled={saving||(aiBlocked&&!directUpload)}>
                 {directUpload
                   ? (saving ? 'Salvataggio…' : '✓ Aggiungi fonti')
                   : 'Analizza con AI →'}

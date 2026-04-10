@@ -555,7 +555,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       if(key==='flashcards'){const c=parseFC(result);setFcCards(c);setFcIdx(0);setFcFlipped(false);setFullpage({title:'Flash Cards',type:'fc',data:c})}
       else if(key==='mappa'){const d=parseMappa(result);setMappaData(d);setExpandedNodes(new Set());setFullpage({title:'Mappa Concettuale',type:'mappa',data:d})}
       else if(key==='riassunto'){const d=parseRiassunto(result);setRiassuntoData(d);setExpandedSecs(new Set(d.map((_,i)=>i)));setFullpage({title:'Riassunto',type:'riassunto',data:d})}
-      else if(key==='quiz'){const p=parseQuiz(result);setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([]);setFullpage({title:'Quiz',type:'quiz',data:p})}
+      else if(key==='quiz'){console.log('[quiz raw]',result);const p=parseQuiz(result);console.log('[quiz parsed]',p.length,'domande');setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([]);setFullpage({title:'Quiz',type:'quiz',data:p})}
       else if(key==='quiz-aperta'){
         const qs=parseOpenQuiz(result)
         setQuizData(qs);setQuizApertaIdx(0);setOpenAnswers({});setOpenFeedback({});setOpenFinalEval(null);setFullpage({title:'Quiz Aperta',type:'quiz-aperta',data:qs})
@@ -617,7 +617,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     if(s.tipo==='flashcards'){const c=parseFC(s.contenuto);if(c.length){setFcCards(c);setFcIdx(0);setFcFlipped(false);setFullpage({title:'Flash Cards',type:'fc',data:c});return}}
     if(s.tipo==='mappa'){const d=parseMappa(s.contenuto);setMappaData(d);setExpandedNodes(new Set());setFullpage({title:'Mappa Concettuale',type:'mappa',data:d});return}
     if(s.tipo==='riassunto'){const d=parseRiassunto(s.contenuto);setRiassuntoData(d);setExpandedSecs(new Set(d.map((_,i)=>i)));setFullpage({title:'Riassunto',type:'riassunto',data:d});return}
-    if(s.tipo==='quiz'){const p=parseQuiz(s.contenuto);setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([]);setFullpage({title:'Quiz',type:'quiz',data:p});return}
+    if(s.tipo==='quiz'){console.log('[quiz storico raw]',s.contenuto);const p=parseQuiz(s.contenuto);console.log('[quiz storico parsed]',p.length,'domande');setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([]);setFullpage({title:'Quiz',type:'quiz',data:p});return}
     if(s.tipo==='quiz-aperta'){const qs=parseOpenQuiz(s.contenuto);if(qs.length){setQuizData(qs);setQuizApertaIdx(0);setOpenAnswers({});setOpenFeedback({});setOpenFinalEval(null);setFullpage({title:'Quiz Aperta',type:'quiz-aperta',data:qs});return}}
     setFullpage({title:s.tipo,type:'text',data:s.contenuto})
   }
@@ -1297,7 +1297,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
 
         {fullpage.type==='quiz'&&(
           !quizData||quizData.length===0
-          ? <div className="quiz-score"><div className="quiz-score-circle" style={{fontSize:'2rem'}}>⚠️</div><p style={{color:'var(--muted)',textAlign:'center'}}>Impossibile leggere le domande. Riprova a generare il quiz.</p><button className="btn-primary" style={{maxWidth:220,marginTop:16}} onClick={()=>setFullpage(null)}>Chiudi</button></div>
+          ? <div style={{fontSize:'.88rem',lineHeight:1.75,whiteSpace:'pre-wrap',color:'var(--ink)',padding:'4px 0'}}>{cleanText(fullpage.data||'(nessun contenuto)')}</div>
           : quizIdx>=quizData.length
             ? <div className="quiz-score">
                 <div className="quiz-score-circle">{quizScore}/{quizData.length}</div>

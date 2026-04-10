@@ -87,7 +87,7 @@ async function compressImgToDataUrl(file) {
     const objectUrl = URL.createObjectURL(file)
     img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Image load failed')) }
     img.onload = () => {
-      const M = 1024
+      const M = 800
       let { width: w, height: h } = img
       if (w > M || h > M) { const r = Math.min(M / w, M / h); w = Math.round(w * r); h = Math.round(h * r) }
       const c = document.createElement('canvas')
@@ -99,7 +99,7 @@ async function compressImgToDataUrl(file) {
         reader.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('FileReader error')) }
         reader.onload = e2 => { resolve(e2.target.result); URL.revokeObjectURL(objectUrl) }
         reader.readAsDataURL(b)
-      }, 'image/jpeg', 0.6)
+      }, 'image/jpeg', 0.5)
     }
     img.src = objectUrl
   })

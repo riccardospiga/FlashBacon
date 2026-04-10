@@ -260,16 +260,42 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   try {
+    // Guard: body parsing fallisce silenziosamente se troppo grande o Content-Type errato
+    if (!req.body || typeof req.body !== 'object') {
+      console.error('[ai.js] req.body non disponibile:', typeof req.body)
+      return res.status(400).json({ error: 'Body non ricevuto — payload troppo grande o Content-Type errato' })
+    }
+
     const { prompt, images = [], textSources = [], urlSources = [], settings = {}, systemContext = '', fileNames = '', userEmail = '' } = req.body
 
-    // Debug: log received images
-    console.log('[ai.js] immagini ricevute:', images.length)
+    // Debug: log immagini ricevute + dimensione totale payload
+    const totalImgKB = Math.round(images.reduce((s, img) => s + (typeof img === 'string' ? img.length : 0), 0) / 1024)
+    console.log('[ai.js] immagini ricevute:', images.length, `(~${totalImgKB} KB totale)`)
     images.forEach((img, i) => {
-      const preview = typeof img === 'string' ? img.slice(0, 100) : String(img)
-      console.log(`  img[${i}]: ${preview}…`)
+      const preview = typeof img === 'string' ? img.slice(0, 80) : String(img)
+      console.log(`  img[${i}] (${Math.round((img?.length||0)/1024)}KB): ${preview}…`)
     })
 
     if (!prompt) return res.status(400).json({ error: 'Prompt mancante' })
+
+    // Cap immagini: se il payload supera 4MB o ci sono più di 4 immagini, tronca
+    const MAX_IMG_COUNT = 4
+    const MAX_IMG_BYTES = 4 * 1024 * 1024 // 4MB
+    let safeImages = images
+    if (safeImages.length > MAX_IMG_COUNT) {
+      console.warn(`[ai.js] ⚠ Troppe immagini (${safeImages.length}), troncate a ${MAX_IMG_COUNT}`)
+      safeImages = safeImages.slice(0, MAX_IMG_COUNT)
+    }
+    const imgBytes = safeImages.reduce((s, img) => s + (typeof img === 'string' ? img.length : 0), 0)
+    if (imgBytes > MAX_IMG_BYTES) {
+      console.warn(`[ai.js] ⚠ Payload immagini troppo grande (~${Math.round(imgBytes/1024)}KB), ridotto`)
+      // rimuovi le immagini più grandi finché si rientra nel limite
+      safeImages = safeImages.sort((a, b) => a.length - b.length)
+      while (safeImages.reduce((s, i) => s + i.length, 0) > MAX_IMG_BYTES && safeImages.length > 1) {
+        safeImages.pop()
+      }
+      console.warn(`[ai.js] ⚠ Immagini rimaste dopo taglio: ${safeImages.length}`)
+    }
     const maxTokens = Math.min(settings.maxTokens || 4096, 4096)
 
     // Pre-call token check — returns JSON error (before SSE headers set)
@@ -303,13 +329,15 @@ module.exports = async function handler(req, res) {
     res.setHeader('X-Accel-Buffering', 'no')
     res.setHeader('Connection', 'keep-alive')
 
+    console.log(`[ai.js] provider: ${prov.provider} | immagini passate al provider: ${safeImages.length}`)
+
     let resp = { text: '', tokens: 0 }
     switch (prov.provider) {
-      case 'anthropic': resp = await streamAnthropic(apiKey, prov.modello, prompt, images, sysPrompt, maxTokens, res); break
-      case 'openai':    resp = await streamOpenAI(apiKey, prov.modello, prompt, images, sysPrompt, maxTokens, res);    break
-      case 'google':    resp = await streamGemini(apiKey, prov.modello, prompt, images, sysPrompt, maxTokens, res);    break
-      case 'mistral':   resp = await streamMistral(apiKey, prov.modello, prompt, images, sysPrompt, maxTokens, res);   break
-      case 'deepseek':  resp = await streamDeepSeek(apiKey, prov.modello, prompt, sysPrompt, maxTokens, res);          break
+      case 'anthropic': resp = await streamAnthropic(apiKey, prov.modello, prompt, safeImages, sysPrompt, maxTokens, res); break
+      case 'openai':    resp = await streamOpenAI(apiKey, prov.modello, prompt, safeImages, sysPrompt, maxTokens, res);    break
+      case 'google':    resp = await streamGemini(apiKey, prov.modello, prompt, safeImages, sysPrompt, maxTokens, res);    break
+      case 'mistral':   resp = await streamMistral(apiKey, prov.modello, prompt, safeImages, sysPrompt, maxTokens, res);   break
+      case 'deepseek':  resp = await streamDeepSeek(apiKey, prov.modello, prompt, sysPrompt, maxTokens, res);              break
       default: throw new Error(`Provider sconosciuto: ${prov.provider}`)
     }
 
@@ -325,7 +353,8 @@ module.exports = async function handler(req, res) {
     res.end()
 
   } catch(e) {
-    console.error('[ai.js]', e.message)
+    console.error('[ai.js] ERRORE COMPLETO:', e)
+    console.error('[ai.js] stack:', e.stack)
     if (res.headersSent) {
       try { res.write(`data: ${JSON.stringify({ error: e.message, done: true })}\n\n`); res.end() } catch {}
     } else {

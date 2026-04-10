@@ -149,14 +149,16 @@ async function streamOpenAI(apiKey, model, prompt, imageUrls, systemPrompt, maxT
 async function streamGemini(apiKey, model, prompt, imageUrls, systemPrompt, maxTokens, res) {
   const parts = []
   for (const url of imageUrls) {
-    if (isDataUrl(url)) {
-      const parsed = parseDataUrl(url)
-      if (parsed) parts.push({ inline_data: { mime_type: parsed.mime, data: parsed.b64 } })
-    } else if (isPdf(url)) {
-      parts.push({ file_data: { mime_type: 'application/pdf', file_uri: url } })
-    } else if (isImage(url)) {
-      parts.push({ file_data: { mime_type: 'image/jpeg', file_uri: url } })
-    }
+    try {
+      if (isDataUrl(url)) {
+        const parsed = parseDataUrl(url)
+        if (parsed) parts.push({ inline_data: { mime_type: parsed.mime, data: parsed.b64 } })
+      } else {
+        // URL esterno (Supabase, ecc.) — AI Studio non supporta file_uri, scarica e converti
+        const { b64, mime } = await fetchBase64(url)
+        parts.push({ inline_data: { mime_type: mime, data: b64 } })
+      }
+    } catch(e) { console.warn('[gemini] skipped image:', e.message) }
   }
   parts.push({ text: systemPrompt + '\n\n' + prompt })
 
@@ -164,7 +166,11 @@ async function streamGemini(apiKey, model, prompt, imageUrls, systemPrompt, maxT
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?key=${apiKey}&alt=sse`,
     { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts }], generationConfig: { maxOutputTokens: maxTokens } }) }
   )
-  if (!response.ok) { const d = await response.json(); throw new Error(d.error?.message || 'Gemini error') }
+  if (!response.ok) {
+    const errBody = await response.text()
+    console.error('[gemini error]', response.status, errBody)
+    throw new Error(JSON.parse(errBody)?.error?.message || `Gemini error ${response.status}`)
+  }
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()

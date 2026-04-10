@@ -36,10 +36,9 @@ export const MATERIE_BASE = [
 ]
 
 const STATUS_MSGS = {
-  uploading:    '📤 Caricamento file...',
-  transcribing: '🎤 Trascrizione audio...',
-  analyzing:    '🔍 Analisi in corso...',
-  finishing:    '✅ Unificazione risultati...',
+  extracting: '⚙️ Estrazione testo…',
+  analyzing:  '🔍 Analisi AI in corso…',
+  finishing:  '✅ Elaborazione risultati…',
 }
 
 async function readSSE(response) {
@@ -114,6 +113,35 @@ async function compressImgToDataUrl(file) {
     }
     img.src = objectUrl
   })
+}
+
+async function extractPdfText(file) {
+  const pdfjsLib = await import('pdfjs-dist')
+  pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/build/pdf.worker.min.mjs',
+    import.meta.url
+  ).href
+  const arrayBuffer = await file.arrayBuffer()
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+  let text = ''
+  for (let i = 1; i <= Math.min(pdf.numPages, 20); i++) {
+    const page = await pdf.getPage(i)
+    const tc = await page.getTextContent()
+    text += tc.items.map(s => s.str).join(' ') + '\n'
+  }
+  return text.trim()
+}
+
+async function ocrImage(file) {
+  const { createWorker } = await import('tesseract.js')
+  const worker = await createWorker(['ita', 'eng'])
+  try {
+    const dataUrl = await fileToDataUrl(file)
+    const { data: { text } } = await worker.recognize(dataUrl)
+    return text
+  } finally {
+    await worker.terminate()
+  }
 }
 
 function ItemChip({ item, onRemove }) {
@@ -227,102 +255,121 @@ export default function UploadAIModal({
   const onDragOver = e => { e.preventDefault(); setDragOver(true) }
   const onDragLeave = () => setDragOver(false)
 
-  /* ── AI analysis — descrizioni testuali, niente base64 ── */
+  /* ── AI analysis — estrazione testo client-side, poi singola chiamata AI ── */
   async function analyze() {
     if (!items.length) { setErr('Aggiungi almeno un file o testo'); return }
-    setErr(''); setStep('analyzing'); setAnalyzeStatus('analyzing')
+    setErr(''); setStep('analyzing'); setAnalyzeStatus('extracting')
 
     try {
       const workItems = items.map(i => ({ ...i }))
-      const promptLines = []
-      const urlSources  = []
-      const audioErrors = []
-      let lineIdx = 0
+      const sources = [] // { name, content }
+      let anyAudioError = false
 
-      // Processa ogni item — immagini → descrizione testuale, no base64
-      for (let idx = 0; idx < workItems.length; idx++) {
-        const item = workItems[idx]
-        lineIdx++
+      for (const item of workItems) {
+        let content = ''
 
-        if (item.type === 'audio') {
-          setAnalyzeStatus('transcribing')
+        if (item.type === 'text') {
+          setAnalyzeStatus(`Elaborazione ${item.name}…`)
+          content = item.text
+
+        } else if (item.type === 'audio') {
+          setAnalyzeStatus(`🎤 Trascrizione ${item.name}…`)
           try {
             const fd = new FormData()
             fd.append('file', item.file)
             const tr = await fetch('/api/transcribe', { method: 'POST', body: fd })
             const td = await tr.json()
             if (td.transcript) {
-              promptLines.push(`Audio ${lineIdx} — ${item.name}:\n${td.transcript}`)
+              content = td.transcript
             } else {
-              audioErrors.push(item.name)
-              promptLines.push(`Audio ${lineIdx} — ${item.name}: [trascrizione non disponibile]`)
+              content = `[trascrizione audio non disponibile]`
+              anyAudioError = true
             }
           } catch {
-            audioErrors.push(item.name)
-            promptLines.push(`Audio ${lineIdx} — ${item.name}: [errore trascrizione]`)
+            content = `[errore trascrizione audio]`
+            anyAudioError = true
           }
 
         } else if (item.type === 'file') {
           const ext = getExt(item.name)
-          if (isImgExt(ext)) {
-            // Usa la descrizione inserita dall'utente, fallback al nome pulito
-            const desc = item.description?.trim() || cleanFileName(item.name) || item.name
-            promptLines.push(`Immagine ${lineIdx} — "${item.name}": ${desc}`)
-          } else if (ext === 'pdf') {
-            promptLines.push(`PDF ${lineIdx} — ${item.name}`)
+          if (ext === 'pdf') {
+            setAnalyzeStatus(`📄 Lettura PDF: ${item.name}…`)
+            try {
+              const extracted = await extractPdfText(item.file)
+              content = extracted.trim() || `[PDF senza testo selezionabile: ${cleanFileName(item.name)}]`
+            } catch {
+              content = `[PDF: ${cleanFileName(item.name)}]`
+            }
+          } else if (isImgExt(ext)) {
+            setAnalyzeStatus(`🔍 OCR: ${item.name}…`)
+            const userDesc = item.description?.trim()
+            try {
+              const ocr = await ocrImage(item.file)
+              if (ocr && ocr.trim().length > 10) {
+                content = (userDesc ? `Descrizione: ${userDesc}\n\n` : '') + `Testo rilevato:\n${ocr.trim()}`
+              } else {
+                content = userDesc || cleanFileName(item.name)
+              }
+            } catch {
+              content = userDesc || cleanFileName(item.name)
+            }
           } else {
-            promptLines.push(`Documento ${lineIdx} — ${item.name}`)
+            setAnalyzeStatus(`Elaborazione ${item.name}…`)
+            content = `[${ext.toUpperCase()}: ${cleanFileName(item.name)}]`
           }
 
-        } else if (item.type === 'text') {
-          promptLines.push(`Testo ${lineIdx} — Appunti:\n${item.text}`)
         } else if (item.type === 'url') {
-          urlSources.push(item.url)
-          promptLines.push(`URL ${lineIdx} — ${item.url}: [testo estratto dal server]`)
-        } else if (item.type === 'youtube' && item.videoId) {
+          setAnalyzeStatus(`🌐 Lettura URL: ${item.name}…`)
+          try {
+            const r = await fetch(`/api/fetch-url?url=${encodeURIComponent(item.url)}`)
+            const d = await r.json()
+            content = d.text || `[URL: ${item.url}]`
+          } catch {
+            content = `[URL: ${item.url}]`
+          }
+
+        } else if (item.type === 'youtube') {
+          setAnalyzeStatus(`▶️ Trascrizione YouTube: ${item.name}…`)
           try {
             const tr = await fetch(`/api/transcript?v=${item.videoId}`)
             const td = await tr.json()
-            if (td.transcript) {
-              promptLines.push(`YouTube ${lineIdx} — ${item.url}:\n${td.transcript}`)
-            } else {
-              urlSources.push(item.url)
-              promptLines.push(`YouTube ${lineIdx} — ${item.url}: [trascrizione non disponibile]`)
-            }
+            content = td.transcript || `[YouTube: trascrizione non disponibile]`
           } catch {
-            urlSources.push(item.url)
-            promptLines.push(`YouTube ${lineIdx} — ${item.url}: [errore trascrizione]`)
+            content = `[YouTube: ${item.name}]`
           }
         }
+
+        sources.push({ name: item.name, content: content.slice(0, 3000) })
       }
 
-      if (audioErrors.length > 0) {
-        toast(`⚠️ Trascrizione fallita per: ${audioErrors.join(', ')}. Procedo comunque.`)
-      }
+      if (anyAudioError) toast('⚠️ Alcune trascrizioni audio non erano disponibili. Procedo comunque.')
 
-      const fileList = workItems.map((it, i) => `[${i}] ${it.name} (${it.type})`).join('\n')
       const existingList = materie.length
-        ? materie.map(m => `- "${m.nome}" id:${m.id}`).join('\n')
+        ? materie.map(m => `- "${m.nome}" (id: ${m.id})`).join('\n')
         : '(nessuna materia esistente)'
 
-      const systemContext = `Sei un analizzatore accademico esperto per FlashBacon.
-Il tuo compito è classificare i materiali didattici forniti e proporre una struttura materie/argomenti.
+      const sourcesList = sources.map((s, i) =>
+        `---\nFonte ${i + 1}: ${s.name}\nContenuto completo:\n${s.content}\n---`
+      ).join('\n')
 
-REGOLE DI CLASSIFICAZIONE:
-- Deriva il nome della materia direttamente dal contenuto — non inventare
-- Abbina a una materia accademica standard quando possibile
+      const systemContext = `Sei un organizzatore accademico esperto per FlashBacon, un'app di studio.
+Il tuo UNICO compito è classificare i materiali didattici forniti e proporre una struttura materie/argomenti.
+
+MATERIE STANDARD (usa queste quando il contenuto corrisponde):
+${MATERIE_BASE.join(', ')}
+
+REGOLE:
+- Analizza il CONTENUTO EFFETTIVO di ogni fonte, non solo il nome file
+- Abbina alla materia standard più appropriata basandoti sul contenuto
 - Massimo 1 materia per upload, salvo materiali chiaramente distinti
 - MAX 3 ARGOMENTI PER MATERIA — raggruppa se necessario
-- I nomi degli argomenti devono riflettere capitoli o concetti reali trovati nel contenuto
+- Nomi argomenti = capitoli o concetti reali trovati nel contenuto
 - Non usare nomi generici come "Documento 1", "Appunti", "Materiale"
-- Preferisci aggiungere a una materia esistente se il contenuto corrisponde
-- Materia e argomenti nella lingua del materiale sorgente
+- Preferisci aggiungere a materia esistente se il contenuto corrisponde
+- Lingua: usa la stessa lingua del materiale sorgente
 - LIMITE ASSOLUTO: MASSIMO 3 ARGOMENTI PER MATERIA
 
-Per le immagini: la descrizione fornita dall'utente è la fonte principale per la classificazione.
-
 OUTPUT: Rispondi SOLO con JSON valido. Nessun markdown, nessuna spiegazione.
-
 {
   "nuove_materie": [
     { "nome": "...", "emoji": "📚", "argomenti": ["...", "..."], "item_indices": [0, 2] }
@@ -332,25 +379,26 @@ OUTPUT: Rispondi SOLO con JSON valido. Nessun markdown, nessuna spiegazione.
   ]
 }`
 
-      const prompt = `Classifica i seguenti materiali didattici.
+      const prompt = `Analizza INTERAMENTE le seguenti fonti didattiche e proponi una struttura materie/argomenti.
 
-Materiali:
-${promptLines.join('\n\n')}
-
-Materie già esistenti:
+Materie già esistenti nell'app (aggiungi a queste se il contenuto corrisponde):
 ${existingList}
+
+Fonti:
+${sourcesList}
 
 Rispondi SOLO con il JSON richiesto.`
 
       setAnalyzeStatus('analyzing')
-      console.log('[analyze]', { numItems: workItems.length, numUrl: urlSources.length, promptLines })
+      console.log('[analyze]', { numItems: workItems.length, sources: sources.map(s => ({ name: s.name, len: s.content.length })) })
 
       const res = await fetch('/api/ai', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           prompt, images: [],
-          textSources: [], urlSources,
-          settings: { length: 2 }, systemContext, fileNames: fileList,
+          textSources: [], urlSources: [],
+          settings: { length: 2 }, systemContext,
+          fileNames: items.map((it, i) => `[${i}] ${it.name} (${it.type})`).join('\n'),
           userEmail: utente?.email || ''
         })
       })
@@ -367,7 +415,7 @@ Rispondi SOLO con il JSON richiesto.`
         esistenti: parsed.aggiunte_esistenti || [],
       }
 
-      setItems(workItems)  // save pre-uploaded URLs back to items state
+      setItems(workItems)
       setProposal(newProposal)
       setOriginalProposal(JSON.parse(JSON.stringify(newProposal)))
       setProposalDiverged(false)
@@ -680,10 +728,9 @@ Rispondi SOLO con il JSON richiesto.`
               Analisi di {items.length} {items.length === 1 ? 'file' : 'file'} in corso
             </p>
             <div className="analyze-steps">
-              {['uploading','transcribing','analyzing','finishing'].map((s, i) => {
-                const steps = ['uploading','transcribing','analyzing','finishing']
-                // treat any dynamic batch status as 'analyzing'
-                const normalizedStatus = STATUS_MSGS[analyzeStatus] ? analyzeStatus : 'analyzing'
+              {['extracting','analyzing','finishing'].map((s, i) => {
+                const steps = ['extracting','analyzing','finishing']
+                const normalizedStatus = STATUS_MSGS[analyzeStatus] ? analyzeStatus : 'extracting'
                 const currentIdx = steps.indexOf(normalizedStatus)
                 const isDone = i < currentIdx
                 const isCurrent = i === currentIdx

@@ -225,13 +225,15 @@ export default function UploadAIModal({
       const workItems = items.map(i => ({ ...i }))
 
       const images = []        // base64 data URLs (vision providers)
-      const textSources = []
-      const urlSources = []
+      const promptLines = []   // inline content per source, embedded in user prompt
+      const urlSources = []    // external URLs for server-side extraction only
       const audioErrors = []
+      let lineIdx = 0
 
       // 2. Process each item
       for (let idx = 0; idx < workItems.length; idx++) {
         const item = workItems[idx]
+        lineIdx++
 
         if (item.type === 'audio') {
           setAnalyzeStatus('transcribing')
@@ -241,14 +243,14 @@ export default function UploadAIModal({
             const tr = await fetch('/api/transcribe', { method: 'POST', body: fd })
             const td = await tr.json()
             if (td.transcript) {
-              textSources.push(`[Audio: ${item.name}]\n${td.transcript}`)
+              promptLines.push(`Audio ${lineIdx} — ${item.name}:\n${td.transcript}`)
             } else {
               audioErrors.push(item.name)
-              textSources.push(`[Audio: ${item.name} — trascrizione non disponibile]`)
+              promptLines.push(`Audio ${lineIdx} — ${item.name}: [trascrizione non disponibile]`)
             }
           } catch {
             audioErrors.push(item.name)
-            textSources.push(`[Audio: ${item.name} — errore trascrizione]`)
+            promptLines.push(`Audio ${lineIdx} — ${item.name}: [errore trascrizione]`)
           }
 
         } else if (item.type === 'file') {
@@ -258,8 +260,9 @@ export default function UploadAIModal({
               setAnalyzeStatus('uploading')
               const dataUrl = await compressImgToDataUrl(item.file)
               images.push(dataUrl)
+              promptLines.push(`Immagine ${lineIdx} — ${item.name}: [vedi allegato immagine ${images.length}]`)
             } else {
-              // Text-only provider: upload to Supabase Storage, pass URL as text ref
+              // Text-only provider: upload to Supabase Storage, pass URL for server extraction
               setAnalyzeStatus('uploading')
               try {
                 const safeName = item.name.replace(/[^a-zA-Z0-9._-]/g, '_')
@@ -270,36 +273,46 @@ export default function UploadAIModal({
                 if (!ue) {
                   const { data: { publicUrl } } = supabase.storage.from('fonti').getPublicUrl(path)
                   item.preUploadedUrl = publicUrl
-                  urlSources.push(`[Immagine: ${item.name}, URL: ${publicUrl}]`)
+                  urlSources.push(publicUrl)
+                  promptLines.push(`Immagine ${lineIdx} — ${item.name}: [URL: ${publicUrl}]`)
                 } else {
-                  urlSources.push(`[Immagine: ${item.name}]`)
+                  promptLines.push(`Immagine ${lineIdx} — ${item.name}: [upload fallito]`)
                 }
               } catch {
-                urlSources.push(`[Immagine: ${item.name}]`)
+                promptLines.push(`Immagine ${lineIdx} — ${item.name}: [errore upload]`)
               }
             }
           } else if (ext === 'pdf') {
             if (supportsImages) {
               const dataUrl = await fileToDataUrl(item.file)
               images.push(dataUrl)
+              promptLines.push(`PDF ${lineIdx} — ${item.name}: [vedi allegato PDF ${images.length}]`)
             } else {
-              urlSources.push(`[PDF: ${item.name}]`)
+              promptLines.push(`PDF ${lineIdx} — ${item.name}: [documento PDF allegato]`)
             }
           } else {
-            urlSources.push(`[Documento: ${item.name}]`)
+            promptLines.push(`Documento ${lineIdx} — ${item.name}: [documento allegato]`)
           }
 
         } else if (item.type === 'text') {
-          textSources.push(item.text)
+          promptLines.push(`Testo ${lineIdx} — Appunti:\n${item.text}`)
         } else if (item.type === 'url') {
           urlSources.push(item.url)
+          promptLines.push(`URL ${lineIdx} — ${item.url}: [testo estratto dal server]`)
         } else if (item.type === 'youtube' && item.videoId) {
           try {
             const tr = await fetch(`/api/transcript?v=${item.videoId}`)
             const td = await tr.json()
-            if (td.transcript) textSources.push(`[YouTube: ${item.name}]\n${td.transcript}`)
-            else urlSources.push(item.url)
-          } catch { urlSources.push(item.url) }
+            if (td.transcript) {
+              promptLines.push(`YouTube ${lineIdx} — ${item.url}:\n${td.transcript}`)
+            } else {
+              urlSources.push(item.url)
+              promptLines.push(`YouTube ${lineIdx} — ${item.url}: [trascrizione non disponibile]`)
+            }
+          } catch {
+            urlSources.push(item.url)
+            promptLines.push(`YouTube ${lineIdx} — ${item.url}: [errore trascrizione]`)
+          }
         }
       }
 
@@ -314,22 +327,37 @@ export default function UploadAIModal({
         ? materie.map(m => `- "${m.nome}" id:${m.id}`).join('\n')
         : '(nessuna materia esistente)'
 
-      const systemContext = `You are an intelligent academic organizer for FlashBacon, a study app used by students worldwide.
+      const systemContext = `You are an expert academic content analyzer for FlashBacon, a global study app used by students at every level.
 
-Your job is to analyze all the study materials provided — images, PDFs, documents, links, audio transcriptions, YouTube transcriptions, and plain text — and organize them into a clear, logical academic structure.
+Your primary task is to read EVERY provided source in its entirety — images, text, transcriptions, URLs — and extract a coherent, accurate academic structure from them.
 
-RULES:
-- Analyze EVERY material provided, without exception. Never ignore images, links, or any file type.
-- Group materials by academic subject (e.g. History, Physics, Latin, Math), not by file type or source.
-- Create a maximum of 1 subject per upload unless the materials are clearly from different academic disciplines.
-- Create a maximum of 3-4 broad topics per subject. Never create micro-topics from single paragraphs.
-- If a subject already exists in the user's library, prefer adding to it rather than creating a duplicate.
-- Topic names must be broad, descriptive, and academically meaningful (e.g. "World War II", "Nuclear Energy", "Latin Subordinate Clauses").
-- Base your analysis on the overall theme of each material, not on its internal sections or paragraphs.
-- IMPORTANT: Before creating a new subject name, always check this preferred list and use the EXACT name if the content matches: ${MATERIE_BASE.join(', ')}
-- Always respond ONLY with valid JSON, no explanations, no markdown, no asterisks.
+READING RULES:
+- Read every source completely before drawing any conclusion
+- For images: read all visible text, titles, headings, diagrams, symbols, formulas, and labels
+- For text and documents: read the entire content, never truncate or skim
+- For audio transcriptions: treat them as full documents
+- For URLs: use the full extracted text provided
+- Cross-reference all sources before deciding subject and topics
+- The title or heading found in the content is always the most reliable signal for classification
 
-OUTPUT FORMAT:
+CLASSIFICATION RULES:
+- Derive the subject name directly from what you read — never invent or guess
+- Match to a standard academic subject when possible (e.g. Biology, History, Mathematics, Physics, Latin)
+- Maximum 1 subject per upload unless materials are clearly from completely different academic disciplines
+- Maximum 3-4 topics per subject, broad and academically meaningful
+- Topic names must reflect actual chapters, themes or concepts found in the content
+- Never use generic names like "Document 1", "Notes", "Material", "Appunti"
+- Prefer adding to an existing subject over creating a new one if content matches
+- Subject and topic names must be in the same language as the source material
+
+NAMING RULES:
+- Subject name: broad academic discipline derived from content (e.g. "Biologia", "Storia Romana", "Matematica")
+- Topic names: specific concepts or chapters found in the actual text (e.g. "Alberi Genealogici", "Il Principato di Augusto", "Derivate e Integrali")
+- If the source contains a clear title or heading, use it directly as the topic name
+- Never truncate or abbreviate topic names
+
+OUTPUT: Reply ONLY with valid JSON. No markdown, no explanations, no asterisks, no preamble.
+
 {
   "nuove_materie": [
     { "nome": "...", "emoji": "📚", "argomenti": ["...", "..."], "item_indices": [0, 2] }
@@ -339,7 +367,15 @@ OUTPUT FORMAT:
   ]
 }`
 
-      const prompt = `Materials to organize (index and name):\n${fileList}\n\nExisting subjects in the user's library:\n${existingList}\n\nAnalyze all materials above and return the JSON structure.`
+      const prompt = `Analizza in dettaglio TUTTI i seguenti materiali prima di rispondere. Leggi ogni fonte interamente senza saltare nulla.
+
+Materiali forniti:
+${promptLines.join('\n\n')}
+
+Materie già esistenti dell'utente:
+${existingList}
+
+Rispondi SOLO con il JSON richiesto.`
 
       // 4. Process images in batches of 8
       const BATCH = 8
@@ -348,7 +384,7 @@ OUTPUT FORMAT:
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             prompt: p, images: imgs,
-            textSources: [...textSources, ...extraText],
+            textSources: extraText,
             urlSources, settings: { length: 2 }, systemContext: sysCtx, fileNames: fileList,
             userEmail: utente?.email || ''
           })
@@ -380,7 +416,7 @@ OUTPUT FORMAT:
         // Final merge: combine all partial JSON results into one coherent structure
         setAnalyzeStatus('finishing')
         const mergeSys = systemContext + '\nCombina i risultati JSON parziali in un unico JSON coerente, unendo nuove_materie e aggiunte_esistenti. Rimuovi duplicati. Restituisci SOLO JSON valido.'
-        const mergePrompt = `Unifica questi ${batches.length} risultati parziali JSON in un\'unica struttura coerente:\n\n${partials.map((r, i) => `[Batch ${i + 1}]:\n${r}`).join('\n\n---\n\n')}\n\nExisting subjects:\n${prompt.split('Existing subjects:\n')[1] || ''}`
+        const mergePrompt = `Unifica questi ${batches.length} risultati parziali JSON in un'unica struttura coerente:\n\n${partials.map((r, i) => `[Batch ${i + 1}]:\n${r}`).join('\n\n---\n\n')}\n\nMaterie già esistenti dell'utente:\n${existingList}`
         result = await doAICall(mergePrompt, [], [], mergeSys)
       }
 

@@ -7,7 +7,8 @@
       "Bash(npx vite:*)",
       "Bash(python3 -c \" import sys, json lines = sys.stdin.read\\(\\).strip\\(\\).split\\('\\\\n'\\) for line in lines[-10:]: try: obj = json.loads\\(line\\) role = obj.get\\('role',''\\) content = obj.get\\('content',''\\) if isinstance\\(content, list\\): for c in content: if isinstance\\(c, dict\\) and c.get\\('type'\\) == 'text': print\\(f'[{role}]: {c[\\\\\"text\\\\\"][:300]}'\\) elif isinstance\\(content, str\\): print\\(f'[{role}]: {content[:300]}'\\) except: pass \")",
       "Bash(grep -E \"\\\\.\\(js|ts|sql\\)$\")",
-      "Bash(ls D:/FlashBacon/*.json D:/FlashBacon/vercel.json)"
+      "Bash(ls D:/FlashBacon/*.json D:/FlashBacon/vercel.json)",
+      "Bash(python3 -c ':*)"
     ]
   }
 }

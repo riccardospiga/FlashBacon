@@ -189,16 +189,20 @@ async function streamGemini(apiKey, model, prompt, imageUrls, systemPrompt, maxT
 }
 
 async function streamMistral(apiKey, model, prompt, imageUrls, systemPrompt, maxTokens, res) {
+  // Build content array: immagini prima, poi testo — formato Mistral vision (Pixtral)
   const content = []
   for (const url of imageUrls) {
     if (isImage(url)) content.push({ type: 'image_url', image_url: { url } })
   }
-  content.push({ type: 'text', text: prompt })
+  // System context embedded nel text: Mistral vision non processa il role 'system'
+  // separatamente quando il content è un array multimodale
+  const fullText = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt
+  content.push({ type: 'text', text: fullText })
 
   const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content }], stream: true })
+    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'user', content }], stream: true })
   })
   if (!response.ok) { const d = await response.json(); throw new Error(d.error?.message || 'Mistral error') }
   return readOpenAIStream(response, res)

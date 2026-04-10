@@ -514,7 +514,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     const a=argomenti.find(x=>x.id===curArgId),m=materie.find(x=>x.id===curMateriaId)
     const dd=['elementari','di media difficoltà','avanzate'][(cfg.diff||2)-1]
     const num=cfg.num||10
-    if(mode==='multipla')return`Argomento: "${a?.nome}" — Materia: "${m?.nome}"\n\nCrea ${num} domande a risposta multipla ${dd} in italiano.\n\nFORMATO (separare con ---):\nDOMANDA: [testo]\nA) [opzione]\nB) [opzione]\nC) [opzione]\nD) [opzione]\nCORRECTA: [A/B/C/D]\nSPIEGAZIONE: [spiegazione]\n---\n\nGenera esattamente ${num} domande.`
+    if(mode==='multipla')return`Argomento: "${a?.nome}" — Materia: "${m?.nome}"\n\nCrea ${num} domande a risposta multipla ${dd} in italiano.\n\nRispondi SOLO con un array JSON valido, nessun testo prima o dopo:\n[\n  {\n    "domanda": "testo della domanda",\n    "opzioni": ["opzione A", "opzione B", "opzione C", "opzione D"],\n    "corretta": "A",\n    "spiegazione": "spiegazione breve"\n  }\n]\n\nRegole: "corretta" è solo la lettera (A/B/C/D). "opzioni" sono 4 testi senza prefisso lettera. Genera esattamente ${num} domande.`
     return`Argomento: "${a?.nome}" — Materia: "${m?.nome}"\n\nCrea ${num} domande a risposta aperta ${dd} in italiano.\n\nFORMATO (separare con ---):\nDOMANDA: [testo]\nRISPOSTA: [risposta attesa]\n---`
   }
 
@@ -701,7 +701,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     const arg=argomenti.find(a=>a.id===r.argomento_id)
     const dd=['elementari','di media difficoltà','avanzate'][(cfg.diff||2)-1]
     const num=cfg.num||5
-    if(mode==='multipla')return`Materia: "${mat?.nome}" — Argomento: "${arg?.nome||'generale'}"\n\nCrea ${num} domande a risposta multipla ${dd} in italiano basate sulle fonti.\n\nFORMATO:\nDOMANDA: [testo]\nA) [opzione]\nB) [opzione]\nC) [opzione]\nD) [opzione]\nCORRECTA: [A/B/C/D]\nSPIEGAZIONE: [spiegazione]\n---`
+    if(mode==='multipla')return`Materia: "${mat?.nome}" — Argomento: "${arg?.nome||'generale'}"\n\nCrea ${num} domande a risposta multipla ${dd} in italiano basate sulle fonti.\n\nRispondi SOLO con un array JSON valido, nessun testo prima o dopo:\n[\n  {\n    "domanda": "testo della domanda",\n    "opzioni": ["opzione A", "opzione B", "opzione C", "opzione D"],\n    "corretta": "A",\n    "spiegazione": "spiegazione breve"\n  }\n]\n\nRegole: "corretta" è solo la lettera (A/B/C/D). "opzioni" sono 4 testi senza prefisso lettera. Genera esattamente ${num} domande.`
     return`Materia: "${mat?.nome}" — Argomento: "${arg?.nome||'generale'}"\n\nCrea ${num} domande a risposta aperta ${dd} in italiano.\n\nFORMATO:\nDOMANDA: [testo]\nRISPOSTA: [risposta]\n---`
   }
 

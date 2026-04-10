@@ -7,25 +7,28 @@ function letterIdx(s) {
 
 // ── Format 4: JSON array ─────────────────────────────────────────────────────
 function tryParseJSON(text) {
+  // Find outermost JSON array (skip any preamble text)
   const m = text.match(/\[[\s\S]*\]/)
   if (!m) return null
   try {
     const arr = JSON.parse(m[0])
     if (!Array.isArray(arr) || !arr.length) return null
     return arr.map(q => {
-      const opts = Array.isArray(q.opzioni) ? q.opzioni
-                 : Array.isArray(q.options)  ? q.options
-                 : Array.isArray(q.opts)     ? q.opts
-                 : []
+      const rawOpts = Array.isArray(q.opzioni) ? q.opzioni
+                    : Array.isArray(q.options)  ? q.options
+                    : Array.isArray(q.opts)     ? q.opts
+                    : []
+      // Strip leading "A) " / "a) " / "A. " letter prefix if model ignored instructions
+      const opts = rawOpts.map(o => String(o || '').replace(/^\s*[A-Da-d][).:\-]\s*/, '').trim())
       const corRaw = q.corretta ?? q.correct ?? q.risposta ?? q.answer ?? ''
       const cor = letterIdx(String(corRaw)) >= 0
         ? letterIdx(String(corRaw))
-        : typeof corRaw === 'number' ? corRaw : 0
+        : typeof corRaw === 'number' ? Math.min(corRaw, 3) : 0
       return {
-        dom:  q.domanda || q.question || q.dom || '',
+        dom:  String(q.domanda || q.question || q.dom || '').trim(),
         opts: [...opts, '', '', '', ''].slice(0, 4),
         cor,
-        spieg: q.spiegazione || q.explanation || q.spieg || '',
+        spieg: String(q.spiegazione || q.explanation || q.spieg || '').trim(),
       }
     }).filter(q => q.dom && q.opts.filter(Boolean).length >= 2)
   } catch { return null }
@@ -33,13 +36,9 @@ function tryParseJSON(text) {
 
 // ── Detect which question-boundary marker to split on ───────────────────────
 function splitBlocks(clean) {
-  // Try each anchor in order of specificity
   const anchors = [
-    // "DOMANDA:" or "Domanda X:"
     /(?:^|\n)[ \t]*(?:\d+[.)]\s*)?DOMANDA\s*:/gi,
-    // "**Domanda 1:**" or "Domanda 1."
-    /(?:^|\n)[ \t]*\*{0,2}[Dd]omanda\s+\d+\*{0,2}[:.]/g,
-    // plain numbered "1." / "1)"
+    /(?:^|\n)[ \t]*[Dd]omanda\s*\d*\s*[:.]/g,
     /(?:^|\n)[ \t]*\d+[.)]\s+(?=[A-Z\u00C0-\u024F])/g,
   ]
   for (const re of anchors) {
@@ -51,18 +50,16 @@ function splitBlocks(clean) {
       return starts.map((s, i) => clean.slice(s, starts[i + 1] ?? clean.length).trim())
     }
   }
-  // Fallback: split on --- separators
   const byDash = clean.split(/\n\s*-{3,}\s*\n/).map(b => b.trim()).filter(Boolean)
   if (byDash.length >= 2) return byDash
-  // Single block
   return [clean.trim()].filter(Boolean)
 }
 
 // ── Parse one block into {dom, opts, cor, spieg} ─────────────────────────────
 function parseBlock(block) {
-  // Strip leading number+dot/paren and bold markers
   const lines = block
     .replace(/\*\*/g, '')
+    .replace(/\*/g, '')
     .split('\n')
     .map(l => l.trim())
     .filter(Boolean)
@@ -75,8 +72,7 @@ function parseBlock(block) {
     const l = lines[i]
 
     // ── Question text ──
-    // "DOMANDA: ..."  /  "Domanda 3: ..."  /  "**Domanda 1:** ..."  /  "1. ..."  /  "1) ..."
-    const domM = l.match(/^(?:\*{0,2})?(?:\d+[.)]\s*)?(?:DOMANDA|[Dd]omanda(?:\s+\d+)?)\s*[:.]\s*\*{0,2}\s*(.*)/i)
+    const domM = l.match(/^(?:\d+[.)]\s*)?(?:DOMANDA|[Dd]omanda)\s*\d*\s*[:.]\s*(.*)/i)
       || l.match(/^\d+[.)]\s+(.+)/)
     if (domM) {
       dom = domM[1].trim()
@@ -86,7 +82,7 @@ function parseBlock(block) {
       i++; continue
     }
 
-    // ── Options: "A) ..." / "a) ..." / "- A: ..." / "• A) ..." / "(A) ..." ──
+    // ── Options: "A) ..." / "a) ..." / "- A: ..." / "(A) ..." ──
     const optM = l.match(/^[-*•]?\s*\(?([A-Da-d])[).\-:\s]\s*(.+)/i)
     if (optM) {
       const idx = letterIdx(optM[1])
@@ -94,14 +90,12 @@ function parseBlock(block) {
     }
 
     // ── Correct answer ──
-    // "CORRETTA: B" / "Risposta corretta: b)" / "Risposta: B" / "Correct: A"
     const corM = l.match(/^(?:CORRETTA|CORRECTA|CORR(?:ETTA)?O?|RISPOSTA(?:\s+CORRETTA?)?|CORRECT(?:A)?|ANSWER)\s*[:.]\s*\(?([A-Da-d])/i)
     if (corM) {
       const idx = letterIdx(corM[1])
       if (idx >= 0) cor = idx
       i++; continue
     }
-    // Standalone letter on its own line
     if (/^[A-Da-d][).]?\s*$/.test(l)) {
       const idx = letterIdx(l)
       if (idx >= 0) cor = idx
@@ -114,13 +108,12 @@ function parseBlock(block) {
       spieg = spiegM[1].trim()
       while (i + 1 < lines.length) {
         const next = lines[i + 1]
-        if (/^(?:DOMANDA|[A-Da-d][).\-\s]|CORRETTA|CORRECTA|CORR|RISPOSTA|SPIEGAZIONE|---|[-*•]?\s*\(?[A-D][).:\-])/i.test(next)) break
+        if (/^(?:DOMANDA|[Dd]omanda|[A-Da-d][).\-\s]|CORRETTA|CORRECTA|RISPOSTA|SPIEGAZIONE|---)/i.test(next)) break
         spieg += ' ' + next; i++
       }
       i++; continue
     }
 
-    // ── First non-matched line with no other dom yet → treat as dom ──
     if (!dom) { dom = l.replace(/^\d+[.)]\s*/, '').trim(); i++; continue }
 
     i++
@@ -137,15 +130,30 @@ export function parseQuiz(text) {
     .replace(/```[\s\S]*?```/g, s => s.replace(/```\w*/g, '').replace(/```/g, ''))
     .trim()
 
-  // ── Format 4: JSON ──
+  // ── JSON format (new prompt) ──
   const fromJSON = tryParseJSON(stripped)
-  if (fromJSON?.length) return fromJSON
+  if (fromJSON && fromJSON.length) return fromJSON
 
-  const clean = stripped.replace(/\*\*/g, '')
+  // Strip all markdown bold/italic before text parsing
+  const clean = stripped.replace(/\*\*/g, '').replace(/\*/g, '')
+
+  // ── "Domanda:" keyword splitting (Mistral markdown + DOMANDA: formats) ──
+  // Handles preambles: only keep parts that actually contain a Domanda: line
+  const domLineRe = /(?:^|\n)[ \t]*(?:\d+[.)]\s*)?(?:DOMANDA|[Dd]omanda)\s*\d*\s*[:.]/i
+  if (domLineRe.test(clean)) {
+    // Split at every line that starts a new question
+    const splitRe = /\n(?=[ \t]*(?:\d+[.)]\s*)?(?:DOMANDA|[Dd]omanda)\s*\d*\s*[:.]\s)/gi
+    const parts = ('\n' + clean).split(splitRe)
+      .map(p => p.trim())
+      .filter(p => domLineRe.test(p))
+    if (parts.length > 0) {
+      const parsed = parts.map(parseBlock).filter(Boolean)
+      if (parsed.length > 0) return parsed
+    }
+  }
 
   const blocks = splitBlocks(clean)
-  const questions = blocks.map(parseBlock).filter(Boolean)
-  return questions
+  return blocks.map(parseBlock).filter(Boolean)
 }
 
 export function parseFC(text) {

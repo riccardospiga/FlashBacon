@@ -737,11 +737,16 @@ body {
 
 /* ═══ FULLPAGE MODAL ═══ */
 .fullpage {
-  position: fixed; inset: 0;
-  background: var(--bg); z-index: 200;
-  display: flex; flex-direction: column;
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100dvh;
+  background: var(--bg);
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
   animation: fadeIn .25s ease;
-  max-width: 430px; left: 50%; transform: translateX(-50%);
   overflow: hidden;
 }
 .fp-header {

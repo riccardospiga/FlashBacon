@@ -257,6 +257,14 @@ module.exports = async function handler(req, res) {
 
   try {
     const { prompt, images = [], textSources = [], urlSources = [], settings = {}, systemContext = '', fileNames = '', userEmail = '' } = req.body
+
+    // Debug: log received images
+    console.log('[ai.js] immagini ricevute:', images.length)
+    images.forEach((img, i) => {
+      const preview = typeof img === 'string' ? img.slice(0, 100) : String(img)
+      console.log(`  img[${i}]: ${preview}…`)
+    })
+
     if (!prompt) return res.status(400).json({ error: 'Prompt mancante' })
     const maxTokens = Math.min(settings.maxTokens || 4096, 4096)
 
@@ -320,4 +328,13 @@ module.exports = async function handler(req, res) {
       res.status(500).json({ error: e.message })
     }
   }
+}
+
+// Increase body-parser limit so large base64 image payloads are not rejected
+module.exports.config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '10mb',
+    },
+  },
 }

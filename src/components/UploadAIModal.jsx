@@ -380,6 +380,17 @@ Rispondi SOLO con il JSON richiesto.`
       // 4. Process images in batches of 8
       const BATCH = 8
       const doAICall = async (p, imgs, extraText = [], sysCtx = systemContext) => {
+        // Debug: log images being sent to /api/ai
+        console.log('[analyze] → /api/ai  immagini:', imgs.length)
+        imgs.forEach((img, i) => {
+          const isDataUrl = typeof img === 'string' && img.startsWith('data:')
+          console.log(`  img[${i}]: ${isDataUrl ? img.slice(0, 100) + '…' : String(img).slice(0, 100)}`)
+        })
+        const payloadKB = Math.round(
+          new TextEncoder().encode(JSON.stringify({ prompt: p, images: imgs })).length / 1024
+        )
+        console.log(`  payload stimato: ~${payloadKB} KB`)
+
         const res = await fetch('/api/ai', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

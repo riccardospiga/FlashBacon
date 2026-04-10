@@ -88,7 +88,7 @@ async function readOpenAIStream(response, res) {
 // ─── Provider streaming functions ────────────────────────────────────────────
 async function streamAnthropic(apiKey, model, prompt, imageUrls, systemPrompt, maxTokens, res) {
   const content = []
-  for (const url of imageUrls.slice(0, 5)) {
+  for (const url of imageUrls) {
     try {
       let b64, mime
       if (isDataUrl(url)) { const p = parseDataUrl(url); if (!p) continue; b64 = p.b64; mime = p.mime }
@@ -191,7 +191,7 @@ async function streamGemini(apiKey, model, prompt, imageUrls, systemPrompt, maxT
 async function streamMistral(apiKey, model, prompt, imageUrls, systemPrompt, maxTokens, res) {
   const content = []
   for (const url of imageUrls) {
-    if (isImage(url)) content.push({ type: 'image_url', image_url: url })
+    if (isImage(url)) content.push({ type: 'image_url', image_url: { url } })
   }
   content.push({ type: 'text', text: prompt })
 

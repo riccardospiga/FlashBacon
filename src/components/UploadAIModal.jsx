@@ -82,9 +82,10 @@ async function fileToDataUrl(file) {
 }
 
 async function compressImgToDataUrl(file) {
-  return new Promise(res => {
+  return new Promise((resolve, reject) => {
     const img = new Image()
     const objectUrl = URL.createObjectURL(file)
+    img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Image load failed')) }
     img.onload = () => {
       const M = 1024
       let { width: w, height: h } = img
@@ -93,8 +94,10 @@ async function compressImgToDataUrl(file) {
       c.width = w; c.height = h
       c.getContext('2d').drawImage(img, 0, 0, w, h)
       c.toBlob(b => {
+        if (!b) { URL.revokeObjectURL(objectUrl); reject(new Error('toBlob returned null')); return }
         const reader = new FileReader()
-        reader.onload = e2 => { res(e2.target.result); URL.revokeObjectURL(objectUrl) }
+        reader.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('FileReader error')) }
+        reader.onload = e2 => { resolve(e2.target.result); URL.revokeObjectURL(objectUrl) }
         reader.readAsDataURL(b)
       }, 'image/jpeg', 0.6)
     }
@@ -258,7 +261,12 @@ export default function UploadAIModal({
           if (isImgExt(ext)) {
             if (supportsImages) {
               setAnalyzeStatus('uploading')
-              const dataUrl = await compressImgToDataUrl(item.file)
+              let dataUrl
+              try {
+                dataUrl = await compressImgToDataUrl(item.file)
+              } catch {
+                dataUrl = await fileToDataUrl(item.file)
+              }
               images.push(dataUrl)
               promptLines.push(`Immagine ${lineIdx} — ${item.name}: [vedi allegato immagine ${images.length}]`)
             } else {
@@ -344,11 +352,12 @@ CLASSIFICATION RULES:
 - Derive the subject name directly from what you read — never invent or guess
 - Match to a standard academic subject when possible (e.g. Biology, History, Mathematics, Physics, Latin)
 - Maximum 1 subject per upload unless materials are clearly from completely different academic disciplines
-- Maximum 3-4 topics per subject, broad and academically meaningful
+- MAX 3 ARGOMENTI PER MATERIA — mai superare 3 argomenti, anche se i contenuti sono molti
 - Topic names must reflect actual chapters, themes or concepts found in the content
 - Never use generic names like "Document 1", "Notes", "Material", "Appunti"
 - Prefer adding to an existing subject over creating a new one if content matches
 - Subject and topic names must be in the same language as the source material
+- LIMITE ASSOLUTO: MASSIMO 3 ARGOMENTI PER MATERIA — raggruppa i concetti se necessario
 
 NAMING RULES:
 - Subject name: broad academic discipline derived from content (e.g. "Biologia", "Storia Romana", "Matematica")
@@ -380,16 +389,7 @@ Rispondi SOLO con il JSON richiesto.`
       // 4. Process images in batches of 8
       const BATCH = 8
       const doAICall = async (p, imgs, extraText = [], sysCtx = systemContext) => {
-        // Debug: log images being sent to /api/ai
-        console.log('[analyze] → /api/ai  immagini:', imgs.length)
-        imgs.forEach((img, i) => {
-          const isDataUrl = typeof img === 'string' && img.startsWith('data:')
-          console.log(`  img[${i}]: ${isDataUrl ? img.slice(0, 100) + '…' : String(img).slice(0, 100)}`)
-        })
-        const payloadKB = Math.round(
-          new TextEncoder().encode(JSON.stringify({ prompt: p, images: imgs })).length / 1024
-        )
-        console.log(`  payload stimato: ~${payloadKB} KB`)
+        console.log('[analyze]', { numImmagini: imgs.length, numText: extraText.length, numUrl: urlSources.length })
 
         const res = await fetch('/api/ai', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },

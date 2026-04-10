@@ -555,7 +555,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       if(key==='flashcards'){const c=parseFC(result);setFcCards(c);setFcIdx(0);setFcFlipped(false);setFullpage({title:'Flash Cards',type:'fc',data:c})}
       else if(key==='mappa'){const d=parseMappa(result);setMappaData(d);setExpandedNodes(new Set());setFullpage({title:'Mappa Concettuale',type:'mappa',data:d})}
       else if(key==='riassunto'){const d=parseRiassunto(result);setRiassuntoData(d);setExpandedSecs(new Set(d.map((_,i)=>i)));setFullpage({title:'Riassunto',type:'riassunto',data:d})}
-      else if(key==='quiz'){console.log('[quiz raw]',result);const p=parseQuiz(result);console.log('[quiz parsed]',p.length,'domande');setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([]);setFullpage({title:'Quiz',type:'quiz',data:p})}
+      else if(key==='quiz'){console.log('[quiz raw]',result);const p=parseQuiz(result);console.log('[quiz parsed]',p.length,'domande');setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([]);setFullpage({title:'Quiz',type:'quiz',data:p,raw:result})}
       else if(key==='quiz-aperta'){
         const qs=parseOpenQuiz(result)
         setQuizData(qs);setQuizApertaIdx(0);setOpenAnswers({});setOpenFeedback({});setOpenFinalEval(null);setFullpage({title:'Quiz Aperta',type:'quiz-aperta',data:qs})
@@ -617,7 +617,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     if(s.tipo==='flashcards'){const c=parseFC(s.contenuto);if(c.length){setFcCards(c);setFcIdx(0);setFcFlipped(false);setFullpage({title:'Flash Cards',type:'fc',data:c});return}}
     if(s.tipo==='mappa'){const d=parseMappa(s.contenuto);setMappaData(d);setExpandedNodes(new Set());setFullpage({title:'Mappa Concettuale',type:'mappa',data:d});return}
     if(s.tipo==='riassunto'){const d=parseRiassunto(s.contenuto);setRiassuntoData(d);setExpandedSecs(new Set(d.map((_,i)=>i)));setFullpage({title:'Riassunto',type:'riassunto',data:d});return}
-    if(s.tipo==='quiz'){console.log('[quiz storico raw]',s.contenuto);const p=parseQuiz(s.contenuto);console.log('[quiz storico parsed]',p.length,'domande');setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([]);setFullpage({title:'Quiz',type:'quiz',data:p});return}
+    if(s.tipo==='quiz'){console.log('[quiz storico raw]',s.contenuto);const p=parseQuiz(s.contenuto);console.log('[quiz storico parsed]',p.length,'domande');setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([]);setFullpage({title:'Quiz',type:'quiz',data:p,raw:s.contenuto});return}
     if(s.tipo==='quiz-aperta'){const qs=parseOpenQuiz(s.contenuto);if(qs.length){setQuizData(qs);setQuizApertaIdx(0);setOpenAnswers({});setOpenFeedback({});setOpenFinalEval(null);setFullpage({title:'Quiz Aperta',type:'quiz-aperta',data:qs});return}}
     setFullpage({title:s.tipo,type:'text',data:s.contenuto})
   }
@@ -1297,7 +1297,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
 
         {fullpage.type==='quiz'&&(
           !quizData||quizData.length===0
-          ? <div style={{fontSize:'.88rem',lineHeight:1.75,whiteSpace:'pre-wrap',color:'var(--ink)',padding:'4px 0'}}>{cleanText(fullpage.data||'(nessun contenuto)')}</div>
+          ? <div style={{fontSize:'.88rem',lineHeight:1.75,whiteSpace:'pre-wrap',color:'var(--ink)',padding:'4px 0'}}>{fullpage.raw||'(nessun contenuto)'}</div>
           : quizIdx>=quizData.length
             ? <div className="quiz-score">
                 <div className="quiz-score-circle">{quizScore}/{quizData.length}</div>
@@ -1310,7 +1310,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
                   {quizWrong.map(({qi,q})=>(
                     <div key={qi} className="quiz-wrong-item">
                       <div className="quiz-wrong-q">{cleanText(q.dom||q.domanda||'')}</div>
-                      <div className="quiz-wrong-ans">✓ {cleanText((q.opts||q.opzioni||[])[q.cor??q.corretta]||'')}</div>
+                      <div className="quiz-wrong-ans">✓ {cleanText((q.opts||q.opzioni||[])[q.cor??q.corretta??0]||'')}</div>
                     </div>
                   ))}
                 </div>}
@@ -1319,10 +1319,12 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
             : <div className="quizm-fit">
                 <div className="quiz-progressbar-wrap"><div className="quiz-progressbar" style={{width:`${(quizIdx/quizData.length)*100}%`}}/></div>
                 <span className="quiz-counter">{quizIdx+1} / {quizData.length}</span>
-                <QuizQ key={quizIdx} q={quizData[quizIdx]} idx={quizIdx} total={quizData.length}
-                  onNext={()=>{setQuizIdx(i=>i+1);setQuizAnswered(false)}}
-                  onCorrect={()=>setQuizScore(s=>s+1)}
-                  onWrong={q=>setQuizWrong(p=>[...p,{qi:quizIdx,q}])}/>
+                <QuizErrorBoundary raw={fullpage.raw}>
+                  <QuizQ key={quizIdx} q={quizData[quizIdx]||{dom:'',opts:[],cor:0,spieg:''}} idx={quizIdx} total={quizData.length}
+                    onNext={()=>{setQuizIdx(i=>i+1);setQuizAnswered(false)}}
+                    onCorrect={()=>setQuizScore(s=>s+1)}
+                    onWrong={q=>setQuizWrong(p=>[...p,{qi:quizIdx,q}])}/>
+                </QuizErrorBoundary>
               </div>
         )}
 
@@ -1607,10 +1609,29 @@ function FontePreviewModal({fonte,onClose}){
   )
 }
 
+/* ═══ QUIZ ERROR BOUNDARY ═══ */
+class QuizErrorBoundary extends React.Component {
+  constructor(props){ super(props); this.state={crashed:false,err:null} }
+  static getDerivedStateFromError(err){ return {crashed:true,err} }
+  componentDidCatch(err,info){ console.error('[QuizErrorBoundary]',err,info) }
+  render(){
+    if(this.state.crashed){
+      return(
+        <div style={{fontSize:'.85rem',lineHeight:1.75,whiteSpace:'pre-wrap',color:'var(--ink)',padding:'4px 0',overflowY:'auto'}}>
+          <p style={{color:'#F87171',fontWeight:600,marginBottom:8}}>⚠️ Errore rendering quiz: {this.state.err?.message}</p>
+          {this.props.raw||''}
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 /* ═══ QUIZ QUESTION (multipla) ═══ */
 function QuizQ({q,idx,total,onNext,onCorrect,onWrong}){
   const [chosen,setChosen]=useState(null)
-  const corIdx=typeof q.cor==='number'?q.cor:typeof q.corretta==='number'?q.corretta:0
+  if(!q||typeof q!=='object') return null
+  const corIdx=typeof q.cor==='number'?Math.min(q.cor,3):typeof q.corretta==='number'?Math.min(q.corretta,3):0
   const answered=chosen!==null
   function answer(i){
     if(answered)return
@@ -1618,11 +1639,14 @@ function QuizQ({q,idx,total,onNext,onCorrect,onWrong}){
     if(i===corIdx)onCorrect?.()
     else onWrong?.(q)
   }
-  const opts=(q.opts||q.opzioni||[]).filter((o,i)=>i<4)
-  if(!opts.length)return null
+  const rawOpts=Array.isArray(q.opts)?q.opts:Array.isArray(q.opzioni)?q.opzioni:[]
+  const opts=rawOpts.slice(0,4)
+  if(opts.filter(Boolean).length<2) return(
+    <div style={{padding:20,color:'var(--muted)',fontSize:'.9rem',whiteSpace:'pre-wrap'}}>{String(q.dom||'')}</div>
+  )
   return(
     <div className="quizm-card quiz-card-anim">
-      <div className="quizm-question">{cleanText(q.dom||q.domanda||'')}</div>
+      <div className="quizm-question">{cleanText(String(q.dom||q.domanda||''))}</div>
       <div className="quizm-opts">
         {opts.map((o,i)=>{
           let state=''
@@ -1634,7 +1658,7 @@ function QuizQ({q,idx,total,onNext,onCorrect,onWrong}){
           return(
             <button key={i} className={`quizm-opt ${state}`} onClick={()=>answer(i)} disabled={answered}>
               <span className="quizm-letter">{['A','B','C','D'][i]}</span>
-              <span className="quizm-opt-text">{cleanText(o||'')}</span>
+              <span className="quizm-opt-text">{cleanText(String(o||''))}</span>
               {answered&&i===corIdx&&<span className="quizm-tick">✓</span>}
               {answered&&i===chosen&&i!==corIdx&&<span className="quizm-tick">✗</span>}
             </button>
@@ -1642,7 +1666,7 @@ function QuizQ({q,idx,total,onNext,onCorrect,onWrong}){
         })}
       </div>
       {answered&&(q.spieg||q.spiegazione)&&(
-        <div className="quizm-exp">💡 {cleanText(q.spieg||q.spiegazione)}</div>
+        <div className="quizm-exp">💡 {cleanText(String(q.spieg||q.spiegazione||''))}</div>
       )}
       {answered&&(
         <button className="btn-primary" style={{marginTop:12,flexShrink:0}} onClick={onNext}>

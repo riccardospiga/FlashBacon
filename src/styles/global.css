@@ -1194,6 +1194,18 @@ body {
   background: rgba(108,99,255,.08);
 }
 
+/* Image description input */
+.up-img-item { display: flex; flex-direction: column; gap: 0; }
+.up-img-desc-input {
+  background: var(--surface-3); border: none;
+  border-top: 1px solid var(--border);
+  padding: 7px 12px; font-size: .78rem;
+  color: var(--ink); font-family: 'DM Sans', sans-serif;
+  width: 100%; border-radius: 0 0 10px 10px;
+}
+.up-img-desc-input::placeholder { color: var(--muted); }
+.up-img-desc-input:focus { outline: none; background: var(--surface-2); }
+
 /* Text / URL inputs */
 .up-text-area-wrap { display: flex; flex-direction: column; gap: 8px; }
 .up-textarea {

@@ -64,6 +64,17 @@ async function readSSE(response) {
   return meta.result || fullText
 }
 
+function cleanFileName(name) {
+  return name
+    .replace(/\.[^.]+$/, '')                        // rimuovi estensione
+    .replace(/WhatsApp\s*(Image|Video|Audio)/gi, '') // rimuovi prefisso WhatsApp
+    .replace(/\d{4}[-_.]\d{2}[-_.]\d{2}/g, '')      // rimuovi date YYYY-MM-DD
+    .replace(/\d{2}[-_.]\d{2}[-_.]\d{4}/g, '')      // rimuovi date DD-MM-YYYY
+    .replace(/[-_]+/g, ' ')                          // separatori → spazio
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function isYouTubeUrl(url) {
   return /youtube\.com\/watch|youtu\.be\//.test(url)
 }
@@ -162,8 +173,12 @@ export default function UploadAIModal({
         newItems.push({ type: 'audio', file: f, name: f.name, ext, preview: null })
       } else {
         let preview = null
-        if (isImgExt(ext)) preview = URL.createObjectURL(f)
-        newItems.push({ type: 'file', file: f, name: f.name, ext, preview })
+        let description = ''
+        if (isImgExt(ext)) {
+          preview = URL.createObjectURL(f)
+          description = cleanFileName(f.name)
+        }
+        newItems.push({ type: 'file', file: f, name: f.name, ext, preview, description })
       }
     }
     setItems(p => [...p, ...newItems])
@@ -212,28 +227,19 @@ export default function UploadAIModal({
   const onDragOver = e => { e.preventDefault(); setDragOver(true) }
   const onDragLeave = () => setDragOver(false)
 
-  /* ── Provider-aware AI analysis ── */
+  /* ── AI analysis — descrizioni testuali, niente base64 ── */
   async function analyze() {
     if (!items.length) { setErr('Aggiungi almeno un file o testo'); return }
-    setErr(''); setStep('analyzing'); setAnalyzeStatus('uploading')
+    setErr(''); setStep('analyzing'); setAnalyzeStatus('analyzing')
 
     try {
-      // 1. Detect active provider
-      const { data: provData } = await supabase
-        .from('ai_providers').select('provider').eq('attivo', true).single()
-      const providerName = provData?.provider || 'anthropic'
-      const supportsImages = VISION_PROVIDERS.includes(providerName)
-
-      // Working copy of items (may be augmented with preUploadedUrl)
       const workItems = items.map(i => ({ ...i }))
-
-      const images = []        // base64 data URLs (vision providers)
-      const promptLines = []   // inline content per source, embedded in user prompt
-      const urlSources = []    // external URLs for server-side extraction only
+      const promptLines = []
+      const urlSources  = []
       const audioErrors = []
       let lineIdx = 0
 
-      // 2. Process each item
+      // Processa ogni item — immagini → descrizione testuale, no base64
       for (let idx = 0; idx < workItems.length; idx++) {
         const item = workItems[idx]
         lineIdx++
@@ -258,32 +264,14 @@ export default function UploadAIModal({
 
         } else if (item.type === 'file') {
           const ext = getExt(item.name)
-          console.log('[item]', item.type, item.file?.type, ext, 'supportsImages:', supportsImages)
           if (isImgExt(ext)) {
-            if (supportsImages) {
-              setAnalyzeStatus('uploading')
-              let dataUrl
-              try {
-                dataUrl = await compressImgToDataUrl(item.file)
-              } catch {
-                dataUrl = await fileToDataUrl(item.file)
-              }
-              images.push(dataUrl)
-              promptLines.push(`Immagine ${lineIdx} — ${item.name}: [vedi allegato immagine ${images.length}]`)
-            } else {
-              // Provider testuale (es. DeepSeek): non supporta vision, segnala nel prompt
-              promptLines.push(`Immagine ${lineIdx} — ${item.name}: [file immagine — provider attivo non supporta vision]`)
-            }
+            // Usa la descrizione inserita dall'utente, fallback al nome pulito
+            const desc = item.description?.trim() || cleanFileName(item.name) || item.name
+            promptLines.push(`Immagine ${lineIdx} — "${item.name}": ${desc}`)
           } else if (ext === 'pdf') {
-            if (supportsImages) {
-              const dataUrl = await fileToDataUrl(item.file)
-              images.push(dataUrl)
-              promptLines.push(`PDF ${lineIdx} — ${item.name}: [vedi allegato PDF ${images.length}]`)
-            } else {
-              promptLines.push(`PDF ${lineIdx} — ${item.name}: [documento PDF allegato]`)
-            }
+            promptLines.push(`PDF ${lineIdx} — ${item.name}`)
           } else {
-            promptLines.push(`Documento ${lineIdx} — ${item.name}: [documento allegato]`)
+            promptLines.push(`Documento ${lineIdx} — ${item.name}`)
           }
 
         } else if (item.type === 'text') {
@@ -308,48 +296,32 @@ export default function UploadAIModal({
         }
       }
 
-      // Notify user about audio errors
       if (audioErrors.length > 0) {
         toast(`⚠️ Trascrizione fallita per: ${audioErrors.join(', ')}. Procedo comunque.`)
       }
 
-      // 3. Build analysis prompt
       const fileList = workItems.map((it, i) => `[${i}] ${it.name} (${it.type})`).join('\n')
       const existingList = materie.length
         ? materie.map(m => `- "${m.nome}" id:${m.id}`).join('\n')
         : '(nessuna materia esistente)'
 
-      const systemContext = `You are an expert academic content analyzer for FlashBacon, a global study app used by students at every level.
+      const systemContext = `Sei un analizzatore accademico esperto per FlashBacon.
+Il tuo compito è classificare i materiali didattici forniti e proporre una struttura materie/argomenti.
 
-Your primary task is to read EVERY provided source in its entirety — images, text, transcriptions, URLs — and extract a coherent, accurate academic structure from them.
+REGOLE DI CLASSIFICAZIONE:
+- Deriva il nome della materia direttamente dal contenuto — non inventare
+- Abbina a una materia accademica standard quando possibile
+- Massimo 1 materia per upload, salvo materiali chiaramente distinti
+- MAX 3 ARGOMENTI PER MATERIA — raggruppa se necessario
+- I nomi degli argomenti devono riflettere capitoli o concetti reali trovati nel contenuto
+- Non usare nomi generici come "Documento 1", "Appunti", "Materiale"
+- Preferisci aggiungere a una materia esistente se il contenuto corrisponde
+- Materia e argomenti nella lingua del materiale sorgente
+- LIMITE ASSOLUTO: MASSIMO 3 ARGOMENTI PER MATERIA
 
-READING RULES:
-- Read every source completely before drawing any conclusion
-- For images: read all visible text, titles, headings, diagrams, symbols, formulas, and labels
-- For text and documents: read the entire content, never truncate or skim
-- For audio transcriptions: treat them as full documents
-- For URLs: use the full extracted text provided
-- Cross-reference all sources before deciding subject and topics
-- The title or heading found in the content is always the most reliable signal for classification
+Per le immagini: la descrizione fornita dall'utente è la fonte principale per la classificazione.
 
-CLASSIFICATION RULES:
-- Derive the subject name directly from what you read — never invent or guess
-- Match to a standard academic subject when possible (e.g. Biology, History, Mathematics, Physics, Latin)
-- Maximum 1 subject per upload unless materials are clearly from completely different academic disciplines
-- MAX 3 ARGOMENTI PER MATERIA — mai superare 3 argomenti, anche se i contenuti sono molti
-- Topic names must reflect actual chapters, themes or concepts found in the content
-- Never use generic names like "Document 1", "Notes", "Material", "Appunti"
-- Prefer adding to an existing subject over creating a new one if content matches
-- Subject and topic names must be in the same language as the source material
-- LIMITE ASSOLUTO: MASSIMO 3 ARGOMENTI PER MATERIA — raggruppa i concetti se necessario
-
-NAMING RULES:
-- Subject name: broad academic discipline derived from content (e.g. "Biologia", "Storia Romana", "Matematica")
-- Topic names: specific concepts or chapters found in the actual text (e.g. "Alberi Genealogici", "Il Principato di Augusto", "Derivate e Integrali")
-- If the source contains a clear title or heading, use it directly as the topic name
-- Never truncate or abbreviate topic names
-
-OUTPUT: Reply ONLY with valid JSON. No markdown, no explanations, no asterisks, no preamble.
+OUTPUT: Rispondi SOLO con JSON valido. Nessun markdown, nessuna spiegazione.
 
 {
   "nuove_materie": [
@@ -360,60 +332,30 @@ OUTPUT: Reply ONLY with valid JSON. No markdown, no explanations, no asterisks, 
   ]
 }`
 
-      const prompt = `Analizza in dettaglio TUTTI i seguenti materiali prima di rispondere. Leggi ogni fonte interamente senza saltare nulla.
+      const prompt = `Classifica i seguenti materiali didattici.
 
-Materiali forniti:
+Materiali:
 ${promptLines.join('\n\n')}
 
-Materie già esistenti dell'utente:
+Materie già esistenti:
 ${existingList}
 
 Rispondi SOLO con il JSON richiesto.`
 
-      // 4. Process images in batches of 8
-      const BATCH = 8
-      const doAICall = async (p, imgs, extraText = [], sysCtx = systemContext) => {
-        console.log('[analyze]', { numImmagini: imgs.length, numText: extraText.length, numUrl: urlSources.length })
-
-        const res = await fetch('/api/ai', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            prompt: p, images: imgs,
-            textSources: extraText,
-            urlSources, settings: { length: 2 }, systemContext: sysCtx, fileNames: fileList,
-            userEmail: utente?.email || ''
-          })
-        })
-        if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Errore AI') }
-        return readSSE(res)
-      }
-
-      let result
       setAnalyzeStatus('analyzing')
+      console.log('[analyze]', { numItems: workItems.length, numUrl: urlSources.length, promptLines })
 
-      if (images.length <= BATCH) {
-        result = await doAICall(prompt, images)
-
-      } else {
-        // Batched: each batch gets the full prompt + its images + partial results from previous batches
-        const batches = []
-        for (let i = 0; i < images.length; i += BATCH) batches.push(images.slice(i, i + BATCH))
-
-        const partials = []
-        for (let i = 0; i < batches.length; i++) {
-          setAnalyzeStatus(`Analisi batch ${i + 1}/${batches.length}…`)
-          const ctx = partials.length > 0
-            ? [`Risultati JSON parziali dai batch precedenti:\n${partials.join('\n\n')}`]
-            : []
-          partials.push(await doAICall(prompt, batches[i], ctx))
-        }
-
-        // Final merge: combine all partial JSON results into one coherent structure
-        setAnalyzeStatus('finishing')
-        const mergeSys = systemContext + '\nCombina i risultati JSON parziali in un unico JSON coerente, unendo nuove_materie e aggiunte_esistenti. Rimuovi duplicati. Restituisci SOLO JSON valido.'
-        const mergePrompt = `Unifica questi ${batches.length} risultati parziali JSON in un'unica struttura coerente:\n\n${partials.map((r, i) => `[Batch ${i + 1}]:\n${r}`).join('\n\n---\n\n')}\n\nMaterie già esistenti dell'utente:\n${existingList}`
-        result = await doAICall(mergePrompt, [], [], mergeSys)
-      }
+      const res = await fetch('/api/ai', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt, images: [],
+          textSources: [], urlSources,
+          settings: { length: 2 }, systemContext, fileNames: fileList,
+          userEmail: utente?.email || ''
+        })
+      })
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || 'Errore AI') }
+      const result = await readSSE(res)
 
       setAnalyzeStatus('finishing')
       const match = result.match(/\{[\s\S]*\}/)
@@ -690,9 +632,25 @@ Rispondi SOLO con il JSON richiesto.`
 
             {items.length > 0 && (
               <div className="up-chips">
-                {items.map((item, i) => (
-                  <ItemChip key={i} item={item} onRemove={() => setItems(p => p.filter((_, j) => j !== i))}/>
-                ))}
+                {items.map((item, i) => {
+                  const isImg = item.type === 'file' && isImgExt(getExt(item.name))
+                  return (
+                    <div key={i} className={isImg ? 'up-img-item' : ''}>
+                      <ItemChip item={item} onRemove={() => setItems(p => p.filter((_, j) => j !== i))}/>
+                      {isImg && (
+                        <input
+                          className="up-img-desc-input"
+                          placeholder="Descrivi (es. Appunti storia romana — Augusto)"
+                          value={item.description || ''}
+                          onChange={e => {
+                            const val = e.target.value
+                            setItems(p => p.map((it, j) => j === i ? { ...it, description: val } : it))
+                          }}
+                        />
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
 

@@ -3,7 +3,7 @@ import { supabase } from '../supabase.js'
 import { compressImg, getExt, isImgExt, toast } from '../utils/helpers.js'
 
 const AUDIO_EXTS = ['mp3', 'm4a', 'wav', 'aac', 'ogg', 'flac', 'weba']
-const VISION_PROVIDERS = ['anthropic', 'openai', 'google']
+const VISION_PROVIDERS = ['anthropic', 'openai', 'google', 'mistral']
 
 export const MATERIE_BASE = [
   "Matematica","Fisica","Chimica","Biologia","Storia","Geografia",
@@ -258,6 +258,7 @@ export default function UploadAIModal({
 
         } else if (item.type === 'file') {
           const ext = getExt(item.name)
+          console.log('[item]', item.type, item.file?.type, ext, 'supportsImages:', supportsImages)
           if (isImgExt(ext)) {
             if (supportsImages) {
               setAnalyzeStatus('uploading')
@@ -270,25 +271,8 @@ export default function UploadAIModal({
               images.push(dataUrl)
               promptLines.push(`Immagine ${lineIdx} — ${item.name}: [vedi allegato immagine ${images.length}]`)
             } else {
-              // Text-only provider: upload to Supabase Storage, pass URL for server extraction
-              setAnalyzeStatus('uploading')
-              try {
-                const safeName = item.name.replace(/[^a-zA-Z0-9._-]/g, '_')
-                const path = `${utente.id}/upload/${Date.now()}_${safeName}`
-                let blob = item.file, ct = item.file.type || 'image/jpeg'
-                try { blob = await compressImg(item.file); ct = 'image/jpeg' } catch {}
-                const { error: ue } = await supabase.storage.from('fonti').upload(path, blob, { contentType: ct })
-                if (!ue) {
-                  const { data: { publicUrl } } = supabase.storage.from('fonti').getPublicUrl(path)
-                  item.preUploadedUrl = publicUrl
-                  urlSources.push(publicUrl)
-                  promptLines.push(`Immagine ${lineIdx} — ${item.name}: [URL: ${publicUrl}]`)
-                } else {
-                  promptLines.push(`Immagine ${lineIdx} — ${item.name}: [upload fallito]`)
-                }
-              } catch {
-                promptLines.push(`Immagine ${lineIdx} — ${item.name}: [errore upload]`)
-              }
+              // Provider testuale (es. DeepSeek): non supporta vision, segnala nel prompt
+              promptLines.push(`Immagine ${lineIdx} — ${item.name}: [file immagine — provider attivo non supporta vision]`)
             }
           } else if (ext === 'pdf') {
             if (supportsImages) {

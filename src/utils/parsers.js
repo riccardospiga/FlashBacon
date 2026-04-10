@@ -1,17 +1,26 @@
 export function parseQuiz(text) {
   if (!text) return []
 
-  // Strip markdown fences and leading/trailing whitespace
+  // Strip markdown fences, bold markers
   const clean = text
     .replace(/```[\s\S]*?```/g, s => s.replace(/```\w*/g, '').replace(/```/g, ''))
     .replace(/\*\*/g, '')
     .trim()
 
-  // Split on separator lines: ---, ———, ─────, numbered separators, blank lines between blocks
-  const blocks = clean
-    .split(/\n\s*[-─—]{2,}\s*\n|\n\s*\n(?=\s*(?:DOMANDA|QUESTION|\d+[.)]\s))/i)
-    .map(b => b.trim())
-    .filter(Boolean)
+  // ── Split into per-question blocks on DOMANDA: boundaries ──
+  // Also handles numbered prefixes like "1. DOMANDA:" or "1) DOMANDA:"
+  const domRe = /(?:^|\n)[ \t]*(?:\d+[.)]\s*)?DOMANDA\s*:/gi
+  const starts = []
+  let m
+  while ((m = domRe.exec(clean)) !== null) starts.push(m.index)
+
+  // If no DOMANDA: markers found, fall back to --- splitting
+  let blocks
+  if (starts.length === 0) {
+    blocks = clean.split(/\n\s*-{3,}\s*\n/).map(b => b.trim()).filter(Boolean)
+  } else {
+    blocks = starts.map((s, i) => clean.slice(s, starts[i + 1] ?? clean.length).trim())
+  }
 
   const questions = []
 
@@ -19,73 +28,63 @@ export function parseQuiz(text) {
     const lines = block.split('\n').map(l => l.trim()).filter(Boolean)
     if (!lines.length) continue
 
-    // ── domanda ──
-    let dom = ''
-    for (const l of lines) {
-      // DOMANDA: text  or  1. DOMANDA: text  or  1) text (numbered question without keyword)
-      const m = l.match(/^(?:\d+[.)]\s*)?(?:DOMANDA|QUESTION|QUESITO)[:\s]+(.+)/i)
-      if (m) { dom = m[1].trim(); break }
-    }
-    if (!dom) {
-      // First line that isn't an option / keyword label
-      const first = lines.find(l =>
-        !/^[A-Da-d][).\s]|^\(?[A-Da-d]\)|^(CORRETTA|CORR|RISPOSTA|SPIEGAZIONE|SPIEG|EXPL)/i.test(l)
-      )
-      if (first) dom = first.replace(/^\d+[.)]\s*/, '').trim()
-    }
+    let dom = '', opts = ['', '', '', ''], cor = 0, spieg = ''
 
-    // ── options A-D ──
-    const opts = ['A', 'B', 'C', 'D'].map(letter => {
-      for (const l of lines) {
-        // A) text  /  A. text  /  A: text  /  (A) text  /  A - text
-        if (new RegExp(`^\\(?${letter}[).:\\-]\\s*`, 'i').test(l)) {
-          return l.replace(new RegExp(`^\\(?${letter}[).:\\-]\\s*`, 'i'), '').trim()
-        }
-      }
-      return ''
-    })
-
-    // ── correct answer ──
-    let corLet = ''
-    for (const l of lines) {
-      // CORRETTA: A  /  CORR: A  /  RISPOSTA CORRETTA: A  /  CORRECT: A  /  CORRETO: A
-      const m = l.match(/^(?:CORRETTA|CORR(?:ETTA)?O?|RISPOSTA\s*CORRETTA?|CORRECT(?:A)?|ANSWER)[:\s]+\(?([A-Da-d])[).:\s]*/i)
-      if (m) { corLet = m[1].toUpperCase(); break }
-      // fallback: line is just "A" or "A)" alone on its own after a correct-label block
-      const m2 = l.match(/^(?:CORRETTA|CORR|RISPOSTA)[:\s]*$/i)
-      if (m2) {
-        // next token might be on the same or next line — handled below
-      }
-    }
-    // fallback: scan for standalone letter answer
-    if (!corLet) {
-      for (const l of lines) {
-        const m = l.match(/^([A-Da-d])\s*$/)
-        if (m) { corLet = m[1].toUpperCase(); break }
-      }
-    }
-    const cor = corLet ? Math.max(0, ['A', 'B', 'C', 'D'].indexOf(corLet)) : 0
-
-    // ── spiegazione ──
-    let spieg = ''
-    for (let i = 0; i < lines.length; i++) {
+    let i = 0
+    while (i < lines.length) {
       const l = lines[i]
-      if (/^(?:SPIEGAZIONE|SPIEG|EXPLANATION|EXPL|NOTA)[:\s]/i.test(l)) {
-        // may be multi-line: grab rest of this line + following non-keyword lines
-        const firstPart = l.replace(/^[^:]+:\s*/i, '').trim()
-        const extra = []
-        for (let j = i + 1; j < lines.length; j++) {
-          if (/^(?:DOMANDA|CORRETTA|CORR|QUESTION)[:\s]/i.test(lines[j])) break
-          extra.push(lines[j])
+
+      // ── DOMANDA ──
+      const domM = l.match(/^(?:\d+[.)]\s*)?DOMANDA\s*:\s*(.*)/i)
+      if (domM) {
+        dom = domM[1].trim()
+        // If question text is on next line (DOMANDA:\n testo)
+        if (!dom && i + 1 < lines.length && !/^[A-D][).:\-\s]|^(?:CORRETTA|CORRECTA|CORR|RISPOSTA|SPIEGAZIONE|---)/i.test(lines[i + 1])) {
+          i++; dom = lines[i].trim()
         }
-        spieg = [firstPart, ...extra].filter(Boolean).join(' ')
-        break
+        i++; continue
       }
+
+      // ── OPTIONS A–D ──
+      const optM = l.match(/^\(?([A-Da-d])[).\-:\s]\s*(.+)/i)
+      if (optM) {
+        const idx = 'ABCD'.indexOf(optM[1].toUpperCase())
+        if (idx >= 0) { opts[idx] = optM[2].trim(); i++; continue }
+      }
+
+      // ── CORRECT ANSWER ──
+      const corM = l.match(/^(?:CORRETTA|CORRECTA|CORR(?:ETTA)?O?|RISPOSTA\s*CORRETTA?|CORRECT(?:A)?|ANSWER)\s*:\s*\(?([A-Da-d])/i)
+      if (corM) {
+        const idx = 'ABCD'.indexOf(corM[1].toUpperCase())
+        if (idx >= 0) cor = idx
+        i++; continue
+      }
+      // Standalone letter on its own line (fallback for CORRETTA:\nB)
+      if (/^[A-Da-d]\s*$/.test(l) && cor === 0) {
+        const idx = 'ABCD'.indexOf(l.trim().toUpperCase())
+        if (idx >= 0) cor = idx
+        i++; continue
+      }
+
+      // ── SPIEGAZIONE ──
+      const spiegM = l.match(/^(?:SPIEGAZIONE|SPIEG|EXPLANATION|EXPL|NOTA)\s*:\s*(.*)/i)
+      if (spiegM) {
+        spieg = spiegM[1].trim()
+        // Multi-line explanation
+        while (i + 1 < lines.length) {
+          const next = lines[i + 1]
+          if (/^(?:DOMANDA|[A-D][).\-]|CORRETTA|CORRECTA|CORR|RISPOSTA|SPIEGAZIONE|---|\d+[.)]\s*DOMANDA)/i.test(next)) break
+          spieg += ' ' + next
+          i++
+        }
+        i++; continue
+      }
+
+      i++
     }
 
-    // require at least a question and 2 options
     if (dom && opts.filter(Boolean).length >= 2) {
-      questions.push({ dom, opts, cor, spieg })
+      questions.push({ dom, opts, cor, spieg: spieg.trim() })
     }
   }
 

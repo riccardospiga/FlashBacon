@@ -189,23 +189,34 @@ async function streamGemini(apiKey, model, prompt, imageUrls, systemPrompt, maxT
 }
 
 async function streamMistral(apiKey, model, prompt, imageUrls, systemPrompt, maxTokens, res) {
-  // Build content array: immagini prima, poi testo — formato Mistral vision (Pixtral)
-  const content = []
-  for (const url of imageUrls) {
-    if (isImage(url)) content.push({ type: 'image_url', image_url: { url } })
-  }
-  // System context embedded nel text: Mistral vision non processa il role 'system'
-  // separatamente quando il content è un array multimodale
-  const fullText = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt
-  content.push({ type: 'text', text: fullText })
+  try {
+    // Build content array: immagini prima, poi testo — formato Mistral vision (Pixtral)
+    const content = []
+    for (const url of imageUrls) {
+      if (isImage(url)) content.push({ type: 'image_url', image_url: { url } })
+    }
+    // System context embedded nel text: Mistral vision non processa il role 'system'
+    // separatamente quando il content è un array multimodale
+    const fullText = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt
+    content.push({ type: 'text', text: fullText })
 
-  const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-    body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'user', content }], stream: true })
-  })
-  if (!response.ok) { const d = await response.json(); throw new Error(d.error?.message || 'Mistral error') }
-  return readOpenAIStream(response, res)
+    const response = await fetch('https://api.mistral.ai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'user', content }], stream: true })
+    })
+    if (!response.ok) {
+      const d = await response.json().catch(() => ({}))
+      const detail = d.error?.message || d.message || JSON.stringify(d)
+      console.error('[ai.js] Mistral HTTP error:', response.status, detail)
+      throw new Error(detail || `Mistral error ${response.status}`)
+    }
+    return readOpenAIStream(response, res)
+  } catch (err) {
+    const msg = err?.response?.data || err?.message || err
+    console.error('[ai.js] Mistral error detail:', JSON.stringify(msg))
+    throw err
+  }
 }
 
 async function streamDeepSeek(apiKey, model, prompt, systemPrompt, maxTokens, res) {

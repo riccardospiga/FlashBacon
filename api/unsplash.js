@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   if (!key) return res.status(500).json({ error: 'UNSPLASH_ACCESS_KEY non configurata' })
   try {
     const r = await fetch(
-      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(q)}&per_page=9&client_id=${key}&orientation=landscape`
+      `https://api.unsplash.com/search/photos?query=${encodeURIComponent(q)}&per_page=9&client_id=${key}&orientation=squarish`
     )
     if (!r.ok) {
       const e = await r.json().catch(() => ({}))

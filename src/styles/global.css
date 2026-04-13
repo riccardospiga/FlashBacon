@@ -1745,6 +1745,168 @@ body {
   opacity: .45; pointer-events: none;
 }
 
+/* ═══ HOME V2 — TILES SCROLL + FIXED BOTTOM ═══ */
+.home-tiles-scroll {
+  flex: 1; overflow-y: auto; min-height: 0;
+  padding-bottom: 8px;
+}
+.home-bottom-actions {
+  flex-shrink: 0;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 8px;
+}
+/* Remove old sticky modifier — buttons are now always at bottom */
+.home-ripasso2.home-ripasso2-sticky { position: static; margin-top: 0; box-shadow: none; }
+
+/* ═══ MATERIA IMAGE SEARCH ═══ */
+.mat-img-section { margin-bottom: 4px; }
+.mat-img-search-row { display: flex; gap: 8px; margin-bottom: 10px; }
+.mat-img-search {
+  flex: 1; padding: 9px 12px;
+  background: var(--surface-2); border: 1.5px solid var(--border-md);
+  border-radius: 10px; color: var(--ink); font-family: 'DM Sans', sans-serif;
+  font-size: .88rem; outline: none;
+}
+.mat-img-search:focus { border-color: var(--primary-lt); }
+.mat-img-preview {
+  width: 100%; height: 80px; border-radius: 10px;
+  background-size: cover; background-position: center;
+  margin-bottom: 10px; position: relative;
+  display: flex; align-items: flex-end; padding: 6px;
+  border: 2px solid var(--primary);
+}
+.mat-img-preview span {
+  font-size: .72rem; font-weight: 700; color: #fff;
+  background: rgba(0,0,0,.6); padding: 2px 8px; border-radius: 99px;
+}
+.mat-img-grid {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;
+  margin-bottom: 4px;
+}
+.mat-img-opt {
+  border-radius: 8px; aspect-ratio: 4/3;
+  background-size: cover; background-position: center;
+  cursor: pointer; border: 2px solid transparent;
+  transition: border-color .15s, opacity .15s;
+}
+.mat-img-opt:hover { opacity: .85; }
+.mat-img-opt.selected { border-color: var(--primary); }
+
+/* ═══ RIPASSO V2 ═══ */
+.ripasso-screen { overflow: hidden; }
+.ripasso-layout {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden;
+}
+.ripasso-list-panel {
+  flex: 1; overflow-y: auto; padding: 16px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.ripasso-form-panel {
+  flex: 1; overflow-y: auto; padding: 16px;
+  display: flex; flex-direction: column;
+}
+.rp-hidden-sm { display: none !important; }
+.ripasso-items { display: flex; flex-direction: column; gap: 8px; }
+.ripasso-item2 {
+  background: var(--surface); border-radius: 14px; padding: 12px 14px;
+  border: 1.5px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+  transition: border-color .15s;
+}
+.ripasso-item2.rp-active { border-color: var(--primary-lt); }
+.ripasso-item2-main {
+  flex: 1; min-width: 0; cursor: pointer;
+}
+.ripasso-item2-main:hover .ripasso-item2-nome { color: var(--primary-lt); }
+.ripasso-item2-nome {
+  font-weight: 600; font-size: .9rem; color: var(--ink);
+  transition: color .15s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ripasso-item2-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: .72rem; margin-top: 4px;
+  color: var(--accent); font-weight: 600;
+}
+.ripasso-item2-badge.rp-gen { color: var(--muted); }
+.ripasso-item2-btns {
+  display: flex; gap: 6px; flex-shrink: 0;
+}
+.ripasso-item2-btns button {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: var(--surface-2); border: 1px solid var(--border);
+  color: var(--muted); cursor: pointer; font-size: .85rem;
+  display: flex; align-items: center; justify-content: center;
+  transition: all .15s;
+}
+.ripasso-item2-btns button:hover { border-color: var(--border-str); color: var(--ink); }
+.ripasso-item2-btns button.danger:hover { border-color: #f87171; color: #f87171; }
+.ripasso-new-btn {
+  width: 100%; padding: 12px;
+  background: transparent; border: 1.5px dashed var(--border-md); border-radius: 12px;
+  color: var(--muted); font-weight: 600; cursor: pointer;
+  font-family: 'DM Sans', sans-serif; font-size: .88rem;
+  transition: all .15s; margin-top: auto;
+}
+.ripasso-new-btn:hover { border-color: var(--primary-lt); color: var(--primary-lt); }
+/* Form */
+.ripasso-form { display: flex; flex-direction: column; gap: 16px; }
+.ripasso-form-title {
+  font-family: 'Syne', sans-serif; font-weight: 700; font-size: 1.15rem;
+  color: var(--ink); padding-bottom: 12px; border-bottom: 1px solid var(--border);
+}
+.ripasso-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.field-opt { font-weight: 400; color: var(--muted); font-size: .8rem; }
+.rp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.rp-chip {
+  padding: 7px 13px; background: var(--surface-2);
+  border: 1.5px solid var(--border-md); border-radius: 99px;
+  color: var(--muted); font-size: .84rem; font-weight: 600;
+  cursor: pointer; font-family: 'DM Sans', sans-serif;
+  transition: all .15s; white-space: nowrap;
+}
+.rp-chip:hover { border-color: var(--primary-lt); color: var(--ink); }
+.rp-chip.sel { border-color: var(--primary-lt); background: rgba(108,99,255,.15); color: var(--ink); }
+.rp-slider {
+  width: 100%; margin-top: 8px;
+  accent-color: var(--primary);
+}
+.rp-generating {
+  display: flex; align-items: center; gap: 10px;
+  color: var(--muted); font-size: .85rem;
+  padding: 10px 0;
+}
+.rp-form-empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: .9rem; text-align: center; padding: 32px;
+}
+
+/* Desktop ripasso: 2 colonne */
+@media (min-width: 1024px) {
+  body:has(.ripasso-screen) #root,
+  body:has(.ripasso-screen) .app-shell { max-width: 100%; }
+  .ripasso-layout { flex-direction: row; }
+  .ripasso-list-panel {
+    width: 340px; flex: none; flex-shrink: 0;
+    border-right: 1px solid var(--border); padding: 20px;
+  }
+  .ripasso-form-panel { flex: 1; padding: 28px 36px; }
+  .rp-hidden-sm { display: flex !important; flex-direction: column; }
+}
+
+/* Desktop home: più spazio, font leggibili */
+@media (min-width: 768px) {
+  .home-hdr2 { padding: 18px 28px; }
+  .home-brand2 { font-size: 1.2rem; }
+  .home-col-left { padding: 16px 24px 20px; }
+  .home-col-right { padding: 28px 32px; }
+  .home-col-right-title { font-size: 1.2rem; }
+  .home-action-btn { padding: 15px 14px; font-size: .92rem; }
+  .home-ripasso2 { padding: 17px; font-size: 1rem; }
+  .materie-tiles { gap: 10px; }
+  .materia-tile2-name { font-size: 14px; }
+}
+
 /* ═══ MEDIA QUERIES ═══ */
 @media (max-width: 380px) {
   .materia-grid, .tools-grid { grid-template-columns: 1fr; }

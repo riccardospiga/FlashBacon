@@ -203,8 +203,20 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   const [rArgs,setRArgs]=useState([])  // empty = tutti
   const [rFreq,setRFreq]=useState('settimanale')
   const [rOrario,setROrario]=useState('08:00')
-  const [rQNum,setRQNum]=useState(5)
+  const [rQNum,setRQNum]=useState(10)
   const [rQMode,setRQMode]=useState('multipla')
+  // Ripasso V2
+  const [rNome,setRNome]=useState('')
+  const [rPrompt,setRPrompt]=useState('')
+  const [rShowForm,setRShowForm]=useState(false)
+  const [rEditId,setREditId]=useState(null)
+  const [ripassiGenerating,setRipassiGenerating]=useState(false)
+  const [ripassiQuiz,setRipassiQuiz]=useState({}) // ripasso_id -> quiz row
+  // Materia image search
+  const [matImgQuery,setMatImgQuery]=useState('')
+  const [matImgResults,setMatImgResults]=useState([])
+  const [matImgLoading,setMatImgLoading]=useState(false)
+  const [newMatCoverImg,setNewMatCoverImg]=useState(null)
 
   // Admin
   const [newProv,setNewProv]=useState('anthropic')
@@ -248,8 +260,9 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       sessionStorage.setItem('fb_screen',screen)
       if(curMateriaId)sessionStorage.setItem('fb_mat',curMateriaId)
       if(curArgId)sessionStorage.setItem('fb_arg',curArgId)
+      sessionStorage.setItem('fb_tab',argTab)
     }
-  },[screen,curMateriaId,curArgId])
+  },[screen,curMateriaId,curArgId,argTab])
 
   /* ── AUTH INIT ── */
   useEffect(()=>{
@@ -326,13 +339,14 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       await loadMaterie(u.email)
       const{data:args}=await supabase.from('argomenti').select('*').order('created_at')
       setArgomenti(args||[])
-      await loadRipassi(u.email)
+      const ripassiData=await loadRipassi(u.email)
+      if(ripassiData?.length)await loadRipassiQuiz(ripassiData)
       loadTokenUsage(u.email)
       const isNew=!localStorage.getItem('fb_onb_'+u.id)
       if(isNew){setOnb(true);setOnbStep(0)}
-      const ss=sessionStorage.getItem('fb_screen'),sm=sessionStorage.getItem('fb_mat'),sa=sessionStorage.getItem('fb_arg')
-      if(ss==='argomento'&&sm&&sa){setCurMateriaId(sm);setCurArgId(sa);await loadFonti(sa,sm);await loadStorico(sa);setScreen('argomento')}
-      else if(ss==='argomenti'&&sm){setCurMateriaId(sm);setScreen('argomenti')}
+      const ss=sessionStorage.getItem('fb_screen'),sm=sessionStorage.getItem('fb_mat'),sa=sessionStorage.getItem('fb_arg'),st=sessionStorage.getItem('fb_tab')
+      if(ss==='argomento'&&sm&&sa){setCurMateriaId(sm);setCurArgId(sa);await loadFonti(sa,sm);await loadStorico(sa);if(st)setArgTab(st);setScreen('argomento')}
+      else if(ss==='argomenti'&&sm){setCurMateriaId(sm);loadArgomenti(sm);setScreen('argomenti')}
       else setScreen('home')
     }catch{
       const u={id:user.id,nome:user.email.split('@')[0],email:user.email,is_admin:false}
@@ -369,7 +383,17 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     setScreen('argomento')
   }
   async function loadProviders(){const{data}=await supabase.from('ai_providers').select('*').order('created_at');setProviders(data||[])}
-  async function loadRipassi(email){const{data}=await supabase.from('studio_pianificato').select('*').eq('utente_email',email).order('created_at',{ascending:true});setRipassi(data||[])}
+  async function loadRipassi(email){const{data}=await supabase.from('studio_pianificato').select('*').eq('utente_email',email).order('created_at',{ascending:true});setRipassi(data||[]);return data||[]}
+  async function loadRipassiQuiz(list){
+    const ids=(list||ripassi).map(r=>r.id)
+    if(!ids.length)return
+    try{
+      const{data}=await supabase.from('ripassi_quiz').select('*').in('ripasso_id',ids).order('created_at',{ascending:false})
+      const map={}
+      for(const q of (data||[])){if(!map[q.ripasso_id])map[q.ripasso_id]=q}
+      setRipassiQuiz(map)
+    }catch{} // table may not exist yet — handle gracefully
+  }
   async function loadTokenUsage(email){
     const{data}=await supabase.from('profili').select('token_usati,token_reset_date,ruolo').eq('email',email).single()
     if(data){
@@ -394,7 +418,22 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   function confirmDeleteAccount(){setDialog({icon:'⚠️',title:'Elimina account',msg:'Tutti i dati verranno eliminati definitivamente.',confirmLabel:'Sì, elimina',danger:true,onConfirm:async()=>{await supabase.from('profili').delete().eq('id',utente.id);await doLogout()}})}
 
   /* ── MATERIE ── */
-  async function saveMateria(){if(!newMatNome.trim())return;const{data,error}=await supabase.from('materie').insert({utente_email:utente.email,nome:newMatNome.trim(),emoji:newMatEmoji}).select().single();if(!error){setMaterie(p=>[...p,data]);toast('Materia creata ✓')};setSheetMat(false);setNewMatNome('')}
+  async function saveMateria(){
+    if(!newMatNome.trim())return
+    const{data,error}=await supabase.from('materie').insert({utente_email:utente.email,nome:newMatNome.trim(),emoji:newMatEmoji,cover_image:newMatCoverImg||null}).select().single()
+    if(!error){setMaterie(p=>[...p,data]);toast('Materia creata ✓')}
+    setSheetMat(false);setNewMatNome('');setNewMatCoverImg(null);setMatImgQuery('');setMatImgResults([])
+  }
+  async function searchUnsplash(q){
+    if(!q.trim())return
+    setMatImgLoading(true)
+    try{
+      const r=await fetch(`/api/unsplash?q=${encodeURIComponent(q)}`)
+      const d=await r.json()
+      setMatImgResults(d.results||[])
+    }catch{toast('Errore ricerca immagini')}
+    setMatImgLoading(false)
+  }
   async function deleteMaterie(ids){for(const id of ids)await supabase.from('materie').delete().eq('id',id);setMaterie(p=>p.filter(m=>!ids.has(m.id)));setSelMaterie(new Set());toast('Eliminato ✓')}
   async function saveArgomento(){if(!newArgNome.trim())return;const{data,error}=await supabase.from('argomenti').insert({materia_id:curMateriaId,nome:newArgNome.trim()}).select().single();if(!error){setArgomenti(p=>[...p,data]);toast('Argomento creato ✓')};setSheetArg(false);setNewArgNome('')}
   async function deleteArgomenti(ids){for(const id of ids)await supabase.from('argomenti').delete().eq('id',id);setArgomenti(p=>p.filter(a=>!ids.has(a.id)));setSelArg(new Set());toast('Eliminato ✓')}
@@ -622,22 +661,97 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     setFullpage({title:s.tipo,type:'text',data:s.contenuto})
   }
 
-  /* ── RIPASSO ── */
+  /* ── RIPASSO V2 ── */
+  function openNewRipassoForm(){
+    setREditId(null);setRNome('');setRMat(null);setRArgs([])
+    setRFreq('settimanale');setROrario('08:00');setRQNum(10);setRQMode('multipla');setRPrompt('')
+    setRShowForm(true)
+  }
+  function editRipasso(r){
+    setREditId(r.id);setRNome(r.nome||'');setRMat(r.materia_id)
+    setRArgs(r.argomento_id?[r.argomento_id]:[])
+    setRFreq(r.frequenza||'settimanale');setROrario(r.orario||'08:00')
+    setRQNum(r.quiz_num||10);setRQMode(r.quiz_modalita||'multipla')
+    setRPrompt(r.prompt_personalizzato||'')
+    loadArgomenti(r.materia_id);setRShowForm(true)
+  }
+  async function openRipassoQuizFromTable(r){
+    const quiz=ripassiQuiz[r.id]
+    const argId=r.argomento_id||(argomenti.find(a=>a.materia_id===r.materia_id)?.id)
+    setCurMateriaId(r.materia_id);setCurArgId(argId)
+    if(!quiz){startRipassoQuiz(r);return}
+    const mode=quiz.modalita||r.quiz_modalita||'multipla'
+    const domande=quiz.domande||[]
+    if(!domande.length){startRipassoQuiz(r);return}
+    if(mode==='multipla'){
+      setQuizData(domande);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([])
+      setFullpage({title:'Quiz Ripasso',type:'quiz',data:domande})
+    }else{
+      setQuizData(domande);setQuizApertaIdx(0);setOpenAnswers({});setOpenFeedback({});setOpenFinalEval(null)
+      setFullpage({title:'Quiz Aperta Ripasso',type:'quiz-aperta',data:domande})
+    }
+  }
   async function saveRipasso(){
-    // Ask notification permission at creation time
-    if('Notification' in window&&Notification.permission==='default'){
-      await Notification.requestPermission()
-    }
-    // single selection → use that argomento; multiple or none → null (all)
+    if(!rMat){toast('Seleziona una materia');return}
+    if('Notification' in window&&Notification.permission==='default') await Notification.requestPermission()
     const argomentoId=rArgs.length===1?rArgs[0]:null
-    const{data}=await supabase.from('studio_pianificato').insert({utente_email:utente.email,materia_id:rMat,argomento_id:argomentoId,frequenza:rFreq,orario:rOrario,difficolta:2,quiz_num:rQNum,quiz_modalita:rQMode}).select().single()
-    if(data){
-      setRipassi(p=>[...p,data]) // ascending order: new entries at end
-      // Generate quiz immediately and save to Lab
-      generateRipassoAndSave(data)
+    const fields={nome:rNome||null,materia_id:rMat,argomento_id:argomentoId,frequenza:rFreq,orario:rOrario,difficolta:2,quiz_num:rQNum,quiz_modalita:rQMode,prompt_personalizzato:rPrompt||null}
+    let ripassoRow
+    try{
+      if(rEditId){
+        const{data}=await supabase.from('studio_pianificato').update(fields).eq('id',rEditId).select().single()
+        ripassoRow=data;setRipassi(p=>p.map(r=>r.id===rEditId?data:r))
+      }else{
+        const{data}=await supabase.from('studio_pianificato').insert({...fields,utente_email:utente.email}).select().single()
+        ripassoRow=data;if(data)setRipassi(p=>[...p,data])
+      }
+    }catch(e){
+      // fallback: save without new columns if migration not yet run
+      if(rEditId){
+        const{data}=await supabase.from('studio_pianificato').update({materia_id:rMat,argomento_id:argomentoId,frequenza:rFreq,orario:rOrario,difficolta:2,quiz_num:rQNum,quiz_modalita:rQMode}).eq('id',rEditId).select().single()
+        ripassoRow=data;setRipassi(p=>p.map(r=>r.id===rEditId?data:r))
+      }else{
+        const{data}=await supabase.from('studio_pianificato').insert({utente_email:utente.email,materia_id:rMat,argomento_id:argomentoId,frequenza:rFreq,orario:rOrario,difficolta:2,quiz_num:rQNum,quiz_modalita:rQMode}).select().single()
+        ripassoRow=data;if(data)setRipassi(p=>[...p,data])
+      }
     }
-    toast('Ripasso pianificato ✓')
-    navTo('home')
+    toast(rEditId?'Ripasso aggiornato ✓':'Ripasso pianificato ✓')
+    setRShowForm(false);setREditId(null)
+    if(ripassoRow){
+      setRipassiGenerating(true)
+      try{await generateRipassoAndSaveToTable(ripassoRow)}
+      finally{setRipassiGenerating(false)}
+    }
+  }
+  async function generateRipassoAndSaveToTable(r){
+    const argId=r.argomento_id||(argomenti.find(a=>a.materia_id===r.materia_id)?.id)
+    if(!argId)return
+    try{
+      const q=supabase.from('fonti').select('*').or(`argomento_id.eq.${argId},and(argomento_id.is.null,materia_id.eq.${r.materia_id})`)
+      const{data:rFonti}=await q.order('created_at')
+      const af=rFonti||[]
+      const images=af.filter(f=>(f.tipo==='file')&&(isImgExt(getExt(f.nome))||getExt(f.nome)==='pdf')).map(f=>f.url)
+      const textSources=af.filter(f=>f.tipo==='text').map(f=>f.testo||'')
+      const urlSources=[...af.filter(f=>f.tipo==='url'||f.tipo==='youtube').map(f=>f.url),...af.filter(f=>f.tipo==='file'&&!isImgExt(getExt(f.nome))&&getExt(f.nome)!=='pdf').map(f=>f.url)]
+      const fileNames=af.map(f=>`[Fonte: ${f.nome}]`).join(', ')
+      const cfg={num:r.quiz_num||10,diff:2,length:2}
+      const mode=(r.quiz_modalita==='misto'?'multipla':r.quiz_modalita)||'multipla'
+      const basePrompt=buildQuizPromptDirect(r,cfg,mode)
+      const finalPrompt=r.prompt_personalizzato?basePrompt+`\n\nFocus: ${r.prompt_personalizzato}`:basePrompt
+      const systemContext=buildSystemContext()
+      const res=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:finalPrompt,images,textSources,urlSources,settings:{length:2},systemContext,fileNames,userEmail:utente?.email||''})})
+      if(!res.ok)return
+      const quizResult=await readAIStream(res,null)
+      const parsed=mode==='multipla'?parseQuiz(quizResult):parseOpenQuiz(quizResult)
+      try{
+        const{data:qRow}=await supabase.from('ripassi_quiz').insert({ripasso_id:r.id,domande:parsed,modalita:mode}).select().single()
+        if(qRow)setRipassiQuiz(p=>({...p,[r.id]:qRow}))
+      }catch{
+        // ripassi_quiz table not yet created — store in storico as fallback
+        await supabase.from('storico').insert({utente_email:utente.email,materia_id:r.materia_id,argomento_id:argId,tipo:mode==='multipla'?'quiz':'quiz-aperta',contenuto:quizResult})
+      }
+      showAIDone('✅ Quiz ripasso pronto!')
+    }catch(e){console.warn('generateRipassoAndSaveToTable:',e.message);toast('⚠️ Quiz: '+e.message)}
   }
 
   async function generateRipassoAndSave(r){
@@ -700,9 +814,10 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     const mat=materie.find(m=>m.id===r.materia_id)
     const arg=argomenti.find(a=>a.id===r.argomento_id)
     const dd=['elementari','di media difficoltà','avanzate'][(cfg.diff||2)-1]
-    const num=cfg.num||5
-    if(mode==='multipla')return`Materia: "${mat?.nome}" — Argomento: "${arg?.nome||'generale'}"\n\nCrea ${num} domande a risposta multipla ${dd} in italiano basate sulle fonti.\n\nRispondi SOLO con un array JSON valido, nessun testo prima o dopo:\n[\n  {\n    "domanda": "testo della domanda",\n    "opzioni": ["opzione A", "opzione B", "opzione C", "opzione D"],\n    "corretta": "A",\n    "spiegazione": "spiegazione breve"\n  }\n]\n\nRegole: "corretta" è solo la lettera (A/B/C/D). "opzioni" sono 4 testi senza prefisso lettera. Genera esattamente ${num} domande.`
-    return`Materia: "${mat?.nome}" — Argomento: "${arg?.nome||'generale'}"\n\nCrea ${num} domande a risposta aperta ${dd} in italiano.\n\nFORMATO:\nDOMANDA: [testo]\nRISPOSTA: [risposta]\n---`
+    const num=cfg.num||10
+    const focus=r.prompt_personalizzato?`\nFocus richiesto: ${r.prompt_personalizzato}`:'';
+    if(mode==='multipla')return`Materia: "${mat?.nome}" — Argomento: "${arg?.nome||'generale'}"${focus}\n\nCrea ${num} domande a risposta multipla ${dd} in italiano basate sulle fonti.\n\nRispondi SOLO con un array JSON valido, nessun testo prima o dopo:\n[\n  {\n    "domanda": "testo della domanda",\n    "opzioni": ["opzione A", "opzione B", "opzione C", "opzione D"],\n    "corretta": "A",\n    "spiegazione": "spiegazione breve"\n  }\n]\n\nRegole: "corretta" è solo la lettera (A/B/C/D). "opzioni" sono 4 testi senza prefisso lettera. Genera esattamente ${num} domande.`
+    return`Materia: "${mat?.nome}" — Argomento: "${arg?.nome||'generale'}"${focus}\n\nCrea ${num} domande a risposta aperta ${dd} in italiano.\n\nFORMATO:\nDOMANDA: [testo]\nRISPOSTA: [risposta]\n---`
   }
 
   /* ── QUIZ APERTA — AI EVALUATION ── */
@@ -819,50 +934,53 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
         {/* ── Left: materie tiles + azioni ── */}
         <div className="home-col-left">
 
-          <div className="materie-tiles">
-            {materie.map(m=>{
-              const isSel=selMaterie.has(m.id)
-              return(
-                <div key={m.id}
-                  className={`materia-tile2${isSel?' selected':''}`}
-                  style={m.cover_url?{backgroundImage:`url(${m.cover_url})`}:{}}
-                  onClick={()=>{
-                    if(selMaterie.size>0){const n=new Set(selMaterie);n.has(m.id)?n.delete(m.id):n.add(m.id);setSelMaterie(n);return}
-                    setCurMateriaId(m.id)
-                    loadArgomenti(m.id)
-                    if(window.innerWidth<1024) setScreen('argomenti')
-                  }}
-                  onContextMenu={e=>{e.preventDefault();const n=new Set(selMaterie);n.has(m.id)?n.delete(m.id):n.add(m.id);setSelMaterie(n)}}
-                  onTouchStart={()=>{lpRef.current=setTimeout(()=>{const n=new Set(selMaterie);n.has(m.id)?n.delete(m.id):n.add(m.id);setSelMaterie(n)},600)}}
-                  onTouchEnd={()=>clearTimeout(lpRef.current)}
-                >
-                  {m.cover_url&&<div className="materia-tile2-ov"/>}
-                  {selMaterie.size>0&&<div className={`sel-check${isSel?' checked':''}`}>{isSel&&<svg width="12" height="12" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>}</div>}
-                  <span className="materia-tile2-name">{m.nome}</span>
-                </div>
-              )
-            })}
-            {/* Tile "+" — stessa azione del vecchio big-plus */}
-            <div className="materia-tile2 materia-tile2-add" onClick={()=>setShowUploadModal(true)}>
-              <span className="materia-tile2-plus">+</span>
-            </div>
-          </div>
-
-          {/* Bottoni azione */}
-          <div className="home-action-row">
-            {selMaterie.size>0
-              ?<button className="home-action-btn home-action-danger" style={{flex:1}} onClick={()=>setDialog({icon:'🗑️',title:'Elimina materie?',msg:`Eliminare ${selMaterie.size} materie con tutti i contenuti?`,confirmLabel:'Elimina',danger:true,onConfirm:()=>deleteMaterie(selMaterie)})}>🗑 Elimina {selMaterie.size}</button>
-              :<>
-                <button className="home-action-btn" onClick={()=>{setNewMatNome('');setNewMatEmoji('📚');setSheetMat(true)}}>Nuova materia</button>
-                <button className="home-action-btn home-action-accent" onClick={()=>setShowUploadModal(true)}>✦ Carica fonti</button>
-              </>
+          {/* Tiles scorribili */}
+          <div className="home-tiles-scroll">
+            {materie.length===0
+              ?<div className="empty" style={{padding:'32px 0'}}><span>📚</span><p>Nessuna materia ancora. Crea la prima!</p></div>
+              :<div className="materie-tiles">
+                {materie.map(m=>{
+                  const isSel=selMaterie.has(m.id)
+                  const cover=m.cover_image||m.cover_url
+                  return(
+                    <div key={m.id}
+                      className={`materia-tile2${isSel?' selected':''}`}
+                      style={cover?{backgroundImage:`url(${cover})`}:{}}
+                      onClick={()=>{
+                        if(selMaterie.size>0){const n=new Set(selMaterie);n.has(m.id)?n.delete(m.id):n.add(m.id);setSelMaterie(n);return}
+                        setCurMateriaId(m.id)
+                        loadArgomenti(m.id)
+                        if(window.innerWidth<1024) setScreen('argomenti')
+                      }}
+                      onContextMenu={e=>{e.preventDefault();const n=new Set(selMaterie);n.has(m.id)?n.delete(m.id):n.add(m.id);setSelMaterie(n)}}
+                      onTouchStart={()=>{lpRef.current=setTimeout(()=>{const n=new Set(selMaterie);n.has(m.id)?n.delete(m.id):n.add(m.id);setSelMaterie(n)},600)}}
+                      onTouchEnd={()=>clearTimeout(lpRef.current)}
+                    >
+                      {cover&&<div className="materia-tile2-ov"/>}
+                      {selMaterie.size>0&&<div className={`sel-check${isSel?' checked':''}`}>{isSel&&<svg width="12" height="12" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>}</div>}
+                      <span className="materia-tile2-name">{m.nome}</span>
+                    </div>
+                  )
+                })}
+              </div>
             }
           </div>
 
-          {/* Ripasso — sticky in fondo se ci sono materie */}
-          <button className={`home-ripasso2${materie.length>0?' home-ripasso2-sticky':''}`} onClick={()=>{setRStep(1);setRMat(null);setRArgs([]);setScreen('ripasso')}}>
-            Ripasso
-          </button>
+          {/* Bottoni fissi in basso */}
+          <div className="home-bottom-actions">
+            <div className="home-action-row">
+              {selMaterie.size>0
+                ?<button className="home-action-btn home-action-danger" style={{flex:1}} onClick={()=>setDialog({icon:'🗑️',title:'Elimina materie?',msg:`Eliminare ${selMaterie.size} materie con tutti i contenuti?`,confirmLabel:'Elimina',danger:true,onConfirm:()=>deleteMaterie(selMaterie)})}>🗑 Elimina {selMaterie.size}</button>
+                :<>
+                  <button className="home-action-btn" onClick={()=>{setNewMatNome('');setNewMatCoverImg(null);setMatImgResults([]);setMatImgQuery('');setSheetMat(true)}}>Nuova materia</button>
+                  <button className="home-action-btn home-action-accent" onClick={()=>setShowUploadModal(true)}>✦ Carica fonti</button>
+                </>
+              }
+            </div>
+            <button className="home-ripasso2" onClick={()=>{openNewRipassoForm();setScreen('ripasso')}}>
+              Ripasso
+            </button>
+          </div>
 
         </div>
 
@@ -1230,50 +1348,134 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       </div>
     </div>}
 
-    {/* RIPASSO */}
-    {screen==='ripasso'&&<div className="screen anim" style={{background:'var(--gray)'}}>
-      <div className="top-bar" style={{background:'var(--dark-bg)'}}><button className="back-btn" onClick={()=>navTo('home')}>← Home</button><Brand size="1rem"/></div>
-      <div className="ripasso-body">
-        <div className="section-title">📅 Ripasso Pianificato</div>
-        {ripassi.length>0&&<>
-          <p style={{fontSize:'.78rem',fontWeight:600,color:'var(--muted)'}}>PIANIFICATI</p>
-          {ripassi.map(r=>{
-            const mat=materie.find(m=>m.id===r.materia_id),arg=argomenti.find(a=>a.id===r.argomento_id)
-            return(
-              <div key={r.id} className="ripasso-item">
-                <div>
-                  <div style={{fontWeight:600,fontSize:'.9rem'}}>{mat?.emoji} {mat?.nome}</div>
-                  <div className="ripasso-meta">{r.argomento_id?arg?.nome:'Tutti gli argomenti'} · {r.frequenza} · {r.orario} · {r.quiz_num} dom. {r.quiz_modalita}</div>
-                </div>
-                <div style={{display:'flex',gap:6}}>
-                  <button className="btn-sm primary" onClick={()=>startRipassoQuiz(r)}>▶ Quiz</button>
-                  <button className="btn-sm danger" onClick={()=>deleteRipasso(r.id)}>✕</button>
+    {/* RIPASSO V2 */}
+    {screen==='ripasso'&&<div className="screen anim ripasso-screen">
+      <div className="top-bar">
+        <button className="back-btn" onClick={()=>navTo('home')}>← Home</button>
+        <span style={{fontFamily:"'Syne',sans-serif",fontWeight:700,fontSize:'1rem',color:'var(--ink)'}}>Ripasso</span>
+        <button className="btn-sm primary" onClick={openNewRipassoForm}>+ Nuovo</button>
+      </div>
+
+      <div className="ripasso-layout">
+
+        {/* Colonna sinistra: lista ripassi */}
+        <div className={`ripasso-list-panel${rShowForm?' rp-hidden-sm':''}`}>
+          {ripassi.length===0
+            ?<div className="empty"><span>📅</span><p>Nessun ripasso pianificato.</p></div>
+            :<div className="ripasso-items">
+              {ripassi.map(r=>{
+                const mat=materie.find(m=>m.id===r.materia_id)
+                const hasQuiz=!!ripassiQuiz[r.id]
+                const isGenerating=ripassiGenerating&&rEditId===r.id
+                return(
+                  <div key={r.id} className={`ripasso-item2${rEditId===r.id&&rShowForm?' rp-active':''}`}>
+                    <div className="ripasso-item2-main" onClick={()=>openRipassoQuizFromTable(r)}>
+                      <div className="ripasso-item2-nome">{r.nome||mat?.nome||'Ripasso'}</div>
+                      <div className="ripasso-meta">{r.frequenza} · {r.orario} · {r.quiz_num} dom. · {r.quiz_modalita}</div>
+                      {isGenerating&&<div className="ripasso-item2-badge rp-gen"><Spinner/> Generando quiz…</div>}
+                      {!isGenerating&&hasQuiz&&<div className="ripasso-item2-badge">▶ Quiz pronto</div>}
+                    </div>
+                    <div className="ripasso-item2-btns">
+                      <button onClick={e=>{e.stopPropagation();editRipasso(r)}} title="Modifica parametri">⚙</button>
+                      <button className="danger" onClick={e=>{e.stopPropagation();setDialog({icon:'🗑️',title:'Elimina ripasso?',msg:'Verranno eliminati anche i quiz generati.',confirmLabel:'Elimina',danger:true,onConfirm:()=>deleteRipasso(r.id)})}} title="Elimina">✕</button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          }
+          <button className="ripasso-new-btn" onClick={openNewRipassoForm}>+ Nuovo ripasso</button>
+        </div>
+
+        {/* Colonna destra: form creazione / modifica */}
+        <div className={`ripasso-form-panel${!rShowForm?' rp-hidden-sm':''}`}>
+          {rShowForm
+            ?<div className="ripasso-form">
+              <div className="ripasso-form-title">{rEditId?'Modifica ripasso':'Nuovo ripasso'}</div>
+
+              <div className="field">
+                <label>Nome ripasso <span className="field-opt">(opzionale)</span></label>
+                <input type="text" value={rNome} onChange={e=>setRNome(e.target.value)} placeholder="Es. Ripasso serale Matematica"/>
+              </div>
+
+              <div className="field">
+                <label>Materia</label>
+                <div className="rp-chips">
+                  {materie.map(m=>(
+                    <button key={m.id} className={`rp-chip${rMat===m.id?' sel':''}`}
+                      onClick={()=>{setRMat(m.id);loadArgomenti(m.id);setRArgs([])}}>
+                      {m.nome}
+                    </button>
+                  ))}
                 </div>
               </div>
-            )
-          })}
-        </>}
-        <p style={{fontSize:'.78rem',fontWeight:600,color:'var(--muted)',marginTop:4}}>NUOVO RIPASSO</p>
-        {rStep===1&&<><div className="ripasso-card"><h4>1. Scegli la materia</h4>{materie.map(m=><button key={m.id} className={`ripasso-opt ${rMat===m.id?'sel':''}`} onClick={()=>setRMat(m.id)}>{m.emoji} {m.nome}</button>)}</div><button className="btn-primary" onClick={()=>setRStep(2)} disabled={!rMat}>Avanti →</button></>}
-        {rStep===2&&<><div className="ripasso-card"><h4>2. Argomenti</h4>
-          <p style={{fontSize:'.78rem',color:'var(--muted)',marginBottom:8}}>Seleziona uno o più argomenti (vuoto = tutti)</p>
-          <button className={`ripasso-opt ripasso-opt-check ${rArgs.length===0?'sel':''}`} onClick={()=>setRArgs([])}>
-            <span className="ripasso-check">{rArgs.length===0?'☑':'☐'}</span> Tutti gli argomenti
-          </button>
-          {argomenti.filter(a=>a.materia_id===rMat).map(a=>(
-            <button key={a.id} className={`ripasso-opt ripasso-opt-check ${rArgs.includes(a.id)?'sel':''}`}
-              onClick={()=>setRArgs(prev=>prev.includes(a.id)?prev.filter(x=>x!==a.id):[...prev,a.id])}>
-              <span className="ripasso-check">{rArgs.includes(a.id)?'☑':'☐'}</span> {a.nome}
-            </button>
-          ))}
-        </div><div style={{display:'flex',gap:8}}><button className="btn-secondary" style={{marginTop:0}} onClick={()=>setRStep(1)}>←</button><button className="btn-primary" onClick={()=>setRStep(3)}>Avanti →</button></div></>}
-        {rStep===3&&<><div className="ripasso-card"><h4>3. Opzioni</h4>
-          <div className="field" style={{marginBottom:12}}><label>Frequenza</label><select className="select-field" value={rFreq} onChange={e=>setRFreq(e.target.value)}><option value="giornaliero">Giornaliero</option><option value="settimanale">Settimanale</option><option value="mensile">Mensile</option></select></div>
-          <div className="field" style={{marginBottom:12}}><label>Orario</label><input type="time" className="select-field" value={rOrario} onChange={e=>setROrario(e.target.value)}/></div>
-          <div className="field" style={{marginBottom:12}}><label>Numero domande</label><select className="select-field" value={rQNum} onChange={e=>setRQNum(Number(e.target.value))}><option value={5}>5</option><option value={10}>10</option><option value={20}>20</option></select></div>
-          <div className="field" style={{marginBottom:0}}><label>Modalità</label><select className="select-field" value={rQMode} onChange={e=>setRQMode(e.target.value)}><option value="multipla">Risposta multipla</option><option value="aperta">Risposta aperta</option></select></div>
+
+              {rMat&&argomenti.filter(a=>a.materia_id===rMat).length>0&&(
+                <div className="field">
+                  <label>Argomento <span className="field-opt">(lascia vuoto = tutti)</span></label>
+                  <div className="rp-chips">
+                    <button className={`rp-chip${rArgs.length===0?' sel':''}`} onClick={()=>setRArgs([])}>Tutti</button>
+                    {argomenti.filter(a=>a.materia_id===rMat).map(a=>(
+                      <button key={a.id} className={`rp-chip${rArgs.includes(a.id)?' sel':''}`}
+                        onClick={()=>setRArgs(prev=>prev.includes(a.id)?prev.filter(x=>x!==a.id):[...prev,a.id])}>
+                        {a.nome}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="ripasso-form-row">
+                <div className="field">
+                  <label>Frequenza</label>
+                  <select className="select-field" value={rFreq} onChange={e=>setRFreq(e.target.value)}>
+                    <option value="giornaliero">Giornaliero</option>
+                    <option value="settimanale">Settimanale</option>
+                    <option value="personalizzato">Personalizzato</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Orario</label>
+                  <input type="time" className="select-field" value={rOrario} onChange={e=>setROrario(e.target.value)}/>
+                </div>
+              </div>
+
+              <div className="ripasso-form-row">
+                <div className="field">
+                  <label>Tipo quiz</label>
+                  <select className="select-field" value={rQMode} onChange={e=>setRQMode(e.target.value)}>
+                    <option value="multipla">Risposta multipla</option>
+                    <option value="aperta">Risposta aperta</option>
+                    <option value="misto">Misto</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Domande: <strong>{rQNum}</strong></label>
+                  <input type="range" min={5} max={50} step={5} value={rQNum}
+                    onChange={e=>setRQNum(Number(e.target.value))} className="rp-slider"/>
+                </div>
+              </div>
+
+              <div className="field">
+                <label>Su cosa vuoi concentrarti? <span className="field-opt">(opzionale)</span></label>
+                <textarea className="prompt-custom-input" rows={3}
+                  placeholder="Es. Concentrati sulle formule del secondo capitolo, evita domande sul primo…"
+                  value={rPrompt} onChange={e=>setRPrompt(e.target.value)}/>
+              </div>
+
+              {ripassiGenerating&&<div className="rp-generating"><Spinner/><span>Generazione quiz in corso…</span></div>}
+
+              <div style={{display:'flex',gap:8}}>
+                {rEditId&&<button className="btn-secondary" style={{marginTop:0}} onClick={()=>{setRShowForm(false);setREditId(null)}}>Annulla</button>}
+                <button className="btn-primary" onClick={saveRipasso} disabled={!rMat||ripassiGenerating}>
+                  {ripassiGenerating?'Generando…':(rEditId?'Aggiorna e rigenera quiz':'💾 Salva e genera quiz')}
+                </button>
+              </div>
+            </div>
+            :<div className="rp-form-empty"><p>Seleziona un ripasso dalla lista oppure creane uno nuovo</p></div>
+          }
         </div>
-        <div style={{display:'flex',gap:8}}><button className="btn-secondary" style={{marginTop:0}} onClick={()=>setRStep(2)}>←</button><button className="btn-primary" onClick={saveRipasso}>💾 Salva</button></div></>}
+
       </div>
     </div>}
 
@@ -1442,11 +1644,38 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     </div>}
 
     {/* SHEETS */}
-    {sheetMat&&<div className="sheet-ov" onClick={()=>setSheetMat(false)}><div className="sheet" onClick={e=>e.stopPropagation()}>
+    {sheetMat&&<div className="sheet-ov" onClick={()=>{setSheetMat(false);setMatImgResults([]);setNewMatCoverImg(null)}}><div className="sheet" onClick={e=>e.stopPropagation()}>
       <h3>Nuova Materia</h3>
-      <div className="emoji-grid">{EMOJIS.map(e=><div key={e} className={`emoji-opt ${newMatEmoji===e?'sel':''}`} onClick={()=>setNewMatEmoji(e)}>{e}</div>)}</div>
-      <div className="field"><label>Nome</label><input type="text" value={newMatNome} onChange={e=>setNewMatNome(e.target.value)} placeholder="Es. Matematica" onKeyDown={e=>e.key==='Enter'&&saveMateria()}/></div>
-      <button className="btn-primary" onClick={saveMateria}>Crea materia</button>
+      <div className="field">
+        <label>Nome</label>
+        <input type="text" value={newMatNome} autoFocus
+          onChange={e=>setNewMatNome(e.target.value)}
+          placeholder="Es. Matematica"
+          onKeyDown={e=>e.key==='Enter'&&newMatNome.trim()&&searchUnsplash(newMatNome)}/>
+      </div>
+      {newMatNome.trim()&&<div className="mat-img-section">
+        <div className="mat-img-search-row">
+          <input className="mat-img-search" placeholder={`Cerca immagine per "${newMatNome}"…`}
+            value={matImgQuery} onChange={e=>setMatImgQuery(e.target.value)}
+            onKeyDown={e=>e.key==='Enter'&&searchUnsplash(matImgQuery||newMatNome)}/>
+          <button className="btn-sm primary" onClick={()=>searchUnsplash(matImgQuery||newMatNome)} disabled={matImgLoading}>
+            {matImgLoading?'…':'🔍'}
+          </button>
+          {!matImgResults.length&&<button className="btn-sm" onClick={()=>searchUnsplash(newMatNome)} disabled={matImgLoading}>Auto</button>}
+        </div>
+        {newMatCoverImg&&<div className="mat-img-preview" style={{backgroundImage:`url(${newMatCoverImg})`}}><span>✓ Selezionata</span></div>}
+        {matImgResults.length>0&&<div className="mat-img-grid">
+          {matImgResults.map(img=>(
+            <div key={img.id}
+              className={`mat-img-opt${newMatCoverImg===img.urls.small?' selected':''}`}
+              style={{backgroundImage:`url(${img.urls.thumb})`}}
+              onClick={()=>setNewMatCoverImg(newMatCoverImg===img.urls.small?null:img.urls.small)}
+              title={img.alt}/>
+          ))}
+        </div>}
+      </div>}
+      {!newMatNome.trim()&&<div className="emoji-grid">{EMOJIS.map(e=><div key={e} className={`emoji-opt ${newMatEmoji===e?'sel':''}`} onClick={()=>setNewMatEmoji(e)}>{e}</div>)}</div>}
+      <button className="btn-primary" onClick={saveMateria} disabled={!newMatNome.trim()}>Crea materia</button>
     </div></div>}
 
     {sheetArg&&<div className="sheet-ov" onClick={()=>setSheetArg(false)}><div className="sheet" onClick={e=>e.stopPropagation()}>

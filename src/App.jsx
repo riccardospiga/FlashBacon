@@ -218,6 +218,10 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   const [matImgResults,setMatImgResults]=useState([])
   const [matImgLoading,setMatImgLoading]=useState(false)
   const [newMatCoverImg,setNewMatCoverImg]=useState(null)
+  const [newMatTipo,setNewMatTipo]=useState('generale')
+  // Lab inline (Dizionario)
+  const [labInline,setLabInline]=useState(null) // {key,loading,data}
+  const [labDizQuery,setLabDizQuery]=useState('')
 
   // Admin
   const [newProv,setNewProv]=useState('anthropic')
@@ -405,7 +409,11 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   /* ── NAVIGATION ── */
   function navTo(sc){
     setSelFonti(new Set());setSelStorico(new Set());setSelMaterie(new Set());setSelArg(new Set())
-    if(sc==='home'){setScreen('home');return}
+    if(sc==='home'){
+      if(utente?.email)loadMaterie(utente.email)
+      setLabInline(null)
+      setScreen('home');return
+    }
     if(sc==='argomenti'){loadArgomenti(curMateriaId);setScreen('argomenti');return}
     setScreen(sc)
   }
@@ -419,9 +427,9 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   /* ── MATERIE ── */
   async function saveMateria(){
     if(!newMatNome.trim())return
-    const{data,error}=await supabase.from('materie').insert({utente_email:utente.email,nome:newMatNome.trim(),emoji:newMatEmoji,cover_image:newMatCoverImg||null}).select().single()
+    const{data,error}=await supabase.from('materie').insert({utente_email:utente.email,nome:newMatNome.trim(),emoji:newMatEmoji,cover_image:newMatCoverImg||null,tipo_materia:newMatTipo}).select().single()
     if(!error){setMaterie(p=>[...p,data]);toast('Materia creata ✓')}
-    setSheetMat(false);setNewMatNome('');setNewMatCoverImg(null);setMatImgQuery('');setMatImgResults([])
+    setSheetMat(false);setNewMatNome('');setNewMatCoverImg(null);setMatImgQuery('');setMatImgResults([]);setNewMatTipo('generale')
   }
   async function searchUnsplash(q){
     if(!q.trim())return
@@ -773,6 +781,27 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     toast('Eliminato')
   }
 
+  async function runDizionario(parola){
+    if(!parola?.trim())return
+    setLabInline({key:'dizionario',loading:true,data:null})
+    const mat=materie.find(m=>m.id===curMateriaId)
+    const lingua=mat?.nome||'italiano'
+    const prompt=`Sei un dizionario. Per la parola "${parola.trim()}" in ${lingua} dammi in JSON valido:\n{"significati":["..."],"sinonimi":["..."],"traduzioni":{"it":"...","en":"...","es":"...","fr":"..."}}\nSii conciso, solo JSON, nessun testo extra.`
+    try{
+      const res=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,images:[],textSources:[],urlSources:[],settings:{length:1,maxTokens:400},systemContext:'Sei un dizionario preciso. Rispondi SOLO con JSON valido.',fileNames:'',userEmail:utente?.email||''})})
+      if(!res.ok)throw new Error('Errore AI')
+      const result=await readAIStream(res,null)
+      let parsed=null
+      try{
+        const match=result.match(/\{[\s\S]*\}/)
+        if(match)parsed=JSON.parse(match[0])
+      }catch{}
+      setLabInline({key:'dizionario',loading:false,data:parsed||{raw:result}})
+    }catch(e){
+      setLabInline({key:'dizionario',loading:false,data:{error:e.message}})
+    }
+  }
+
   async function startRipassoQuiz(r){
     // Load the argomento's fonti, then auto-generate quiz
     const argId=r.argomento_id||(argomenti.find(a=>a.materia_id===r.materia_id)?.id)
@@ -1073,16 +1102,13 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
 
         {/* ─ FONTI ─ */}
         <div className={`arg-tab-panel${argTab==='fonti'?' active':''}`}>
+        <div className="arg-col-header">Fonti</div>
         <div className="arg-body">
-          <button className="fonti-add-btn" onClick={()=>setShowFontiUpload(true)}>
-            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-            Aggiungi fonti
-          </button>
           {selFonti.size>0&&<div className="sel-bar">
             <span>{selFonti.size} selezionate</span>
             <button className="btn-sm danger" onClick={deleteFontiSel}>Elimina</button>
           </div>}
-          {argFonti.length===0&&<div className="empty"><span>📂</span><p>Nessuna fonte. Aggiungine una sopra.</p></div>}
+          {argFonti.length===0&&<div className="empty"><span>📂</span><p>Nessuna fonte ancora.</p></div>}
           {argFonti.map(f=>{
             const ext=getExt(f.nome)
             const isImg=isImgExt(ext)||(f.tipo==='file'&&f.url?.match(/.(jpg|jpeg|png|gif|webp)/i))
@@ -1114,11 +1140,16 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
               </div>
             )
           })}
+          <button className="fonti-add-btn fonti-add-bottom" onClick={()=>setShowFontiUpload(true)}>
+            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            Aggiungi fonte
+          </button>
         </div>
         </div>
 
         {/* ─ CHAT ─ */}
         <div className={`arg-tab-panel${argTab==='chat'?' active':''}`}>
+        <div className="arg-col-header">Chat</div>
         <div className="arg-chat-container">
           <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
             <span style={{fontSize:'.78rem',fontWeight:600,color:'var(--muted)'}}>Chat con le tue fonti</span>
@@ -1142,7 +1173,12 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
             <button className="chat-len-btn" onClick={()=>setChatLength(l=>l%3+1)} title="Lunghezza risposta">
               {['S','M','L'][chatLength-1]}
             </button>
-            <input className="chat-input" value={chatInput} onChange={e=>setChatInput(e.target.value)} placeholder={aiBlocked?'Limite token raggiunto':'Fai una domanda…'} disabled={aiBlocked} onKeyDown={e=>e.key==='Enter'&&!aiBlocked&&sendChat()}/>
+            <textarea className="chat-input chat-textarea" value={chatInput}
+              onChange={e=>setChatInput(e.target.value)}
+              onInput={e=>{e.target.style.height='auto';e.target.style.height=Math.min(e.target.scrollHeight,140)+'px'}}
+              placeholder={aiBlocked?'Limite token raggiunto':'Fai una domanda… (Invio per inviare, Shift+Invio per a capo)'}
+              disabled={aiBlocked} rows={1}
+              onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!aiBlocked){e.preventDefault();sendChat()}}}/>
             <button className="btn-send" onClick={sendChat} disabled={chatLoading||aiBlocked}>
               <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>
             </button>
@@ -1152,6 +1188,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
 
         {/* ─ LAB ─ */}
         <div className={`arg-tab-panel${argTab==='lab'?' active':''}`}>
+        <div className="arg-col-header">Lab</div>
         <div className="arg-body">
           {activeProvider?.provider==='deepseek'&&argFonti.some(f=>f.tipo==='file')&&<div style={{background:'rgba(248,113,113,.08)',border:'1.5px solid rgba(248,113,113,.2)',borderRadius:12,padding:'10px 14px',fontSize:'.82rem',color:'#F87171'}}>⚠️ DeepSeek non supporta file. Solo testo e link funzioneranno.</div>}
           {aiBlocked&&<div style={{background:'rgba(239,68,68,.08)',border:'1.5px solid rgba(239,68,68,.2)',borderRadius:12,padding:'10px 14px',fontSize:'.82rem',color:'#ef4444',fontWeight:600}}>🚫 Limite token raggiunto. Le funzioni AI sono disabilitate.</div>}
@@ -1184,7 +1221,38 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
                 </div>
               </div>
             ))}
+            {curMateria?.tipo_materia==='linguistica'&&(
+              <div className={`tool-card${aiBlocked?' tool-card-disabled':''}`} onClick={()=>!aiBlocked&&setLabInline(p=>p?.key==='dizionario'?null:{key:'dizionario',loading:false,data:null})}>
+                <div>
+                  <div className="tool-icon">📖</div>
+                  <div className="tool-name">Dizionario</div>
+                  <div className="tool-desc">Significati · Traduzioni</div>
+                </div>
+              </div>
+            )}
           </div>
+
+          {labInline?.key==='dizionario'&&(
+            <div className="lab-dizionario">
+              <div className="lab-diz-row">
+                <input className="chat-input lab-diz-input" value={labDizQuery} onChange={e=>setLabDizQuery(e.target.value)}
+                  placeholder="Inserisci una parola…"
+                  onKeyDown={e=>e.key==='Enter'&&runDizionario(labDizQuery)}/>
+                <button className="btn-send" onClick={()=>runDizionario(labDizQuery)} disabled={labInline.loading||!labDizQuery.trim()}>
+                  {labInline.loading?<Spinner/>:<svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>}
+                </button>
+              </div>
+              {labInline.data&&!labInline.loading&&(
+                labInline.data.error?<div style={{color:'#f87171',fontSize:'.82rem'}}>{labInline.data.error}</div>:
+                labInline.data.raw?<pre style={{fontSize:'.78rem',color:'var(--muted)',whiteSpace:'pre-wrap'}}>{labInline.data.raw}</pre>:
+                <div className="lab-diz-result">
+                  {labInline.data.significati?.length>0&&<div className="lab-diz-section"><div className="lab-diz-label">Significati</div>{labInline.data.significati.map((s,i)=><div key={i} className="lab-diz-item">{s}</div>)}</div>}
+                  {labInline.data.sinonimi?.length>0&&<div className="lab-diz-section"><div className="lab-diz-label">Sinonimi</div><div style={{display:'flex',flexWrap:'wrap',gap:4}}>{labInline.data.sinonimi.map((s,i)=><span key={i} className="lab-diz-chip">{s}</span>)}</div></div>}
+                  {labInline.data.traduzioni&&<div className="lab-diz-section"><div className="lab-diz-label">Traduzioni</div><div className="lab-diz-traduzioni">{Object.entries(labInline.data.traduzioni).map(([lang,val])=><div key={lang} className="lab-diz-trad"><span className="lab-diz-lang">{lang.toUpperCase()}</span><span>{val}</span></div>)}</div></div>}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="lab-section-label" style={{marginTop:6}}>Generati</div>
           {selStorico.size>0&&<div className="sel-bar"><span>{selStorico.size} selezionati</span><button className="btn-sm danger" onClick={deleteStoricoSel}>Elimina</button></div>}
@@ -1240,7 +1308,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
 
     </div>}
     {/* PROFILO */}
-    {screen==='profilo'&&<div className="screen anim" style={{background:'var(--gray)'}}>
+    {screen==='profilo'&&<div className="screen anim profilo-screen" style={{background:'var(--bg)'}}>
       <div className="profilo-top">
         <div className="top-bar" style={{background:'transparent',padding:'12px 16px 0'}}>
           <button className="back-btn" onClick={()=>navTo('home')}>← Home</button>
@@ -1250,6 +1318,18 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
         <div className="profilo-email">{utente?.email}</div>
       </div>
       <div className="profilo-body">
+        {tokenUsage.tokenLimit>0&&<div className="profilo-token-card">
+          <div className="profilo-token-title">Utilizzo token AI</div>
+          <div className="profilo-token-row">
+            <span>{tokenUsage.tokensUsed.toLocaleString('it')} / {tokenUsage.tokenLimit.toLocaleString('it')}</span>
+            <span style={{color:aiBlocked?'#ef4444':'var(--muted)'}}>{Math.round(tokenUsage.tokensUsed/tokenUsage.tokenLimit*100)}%</span>
+          </div>
+          <div className="profilo-token-bar-track">
+            <div className="profilo-token-bar-fill" style={{width:`${Math.min(100,Math.round(tokenUsage.tokensUsed/tokenUsage.tokenLimit*100))}%`,background:aiBlocked?'#ef4444':'var(--primary)'}}/>
+          </div>
+          {tokenUsage.tokenResetDate&&<div style={{fontSize:'.72rem',color:'var(--muted)',marginTop:6}}>Reset il {tokenUsage.tokenResetDate}</div>}
+          {aiBlocked&&<div style={{marginTop:8,fontSize:'.8rem',color:'#ef4444',fontWeight:600}}>Limite raggiunto. AI disabilitata.</div>}
+        </div>}
         <div className="settings-section">
           <div className="settings-row" onClick={()=>setScreen('impostazioni')}>
             <span className="settings-row-label">⚙️ Impostazioni AI</span><span className="settings-row-icon">›</span>
@@ -1665,7 +1745,14 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
           ))}
         </div>}
       </div>}
-      {!newMatNome.trim()&&<div className="emoji-grid">{EMOJIS.map(e=><div key={e} className={`emoji-opt ${newMatEmoji===e?'sel':''}`} onClick={()=>setNewMatEmoji(e)}>{e}</div>)}</div>}
+      <div className="field">
+        <label>Tipo</label>
+        <div className="cfg-btns">
+          <button className={`cfg-btn ${newMatTipo==='generale'?'active':''}`} onClick={()=>setNewMatTipo('generale')}>Generale</button>
+          <button className={`cfg-btn ${newMatTipo==='linguistica'?'active':''}`} onClick={()=>setNewMatTipo('linguistica')}>Linguistica</button>
+          <button className={`cfg-btn ${newMatTipo==='scientifica'?'active':''}`} onClick={()=>setNewMatTipo('scientifica')}>Scientifica</button>
+        </div>
+      </div>
       <button className="btn-primary" onClick={saveMateria} disabled={!newMatNome.trim()}>Crea materia</button>
     </div></div>}
 

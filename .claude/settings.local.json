@@ -11,7 +11,10 @@
       "Bash(python3 -c ':*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(ls -la *.env*)",
+      "Bash(ls -la .env*)",
+      "Bash(cat vercel.json)"
     ]
   }
 }

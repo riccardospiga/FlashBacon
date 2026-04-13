@@ -804,68 +804,84 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     </div>}
 
     {/* HOME */}
-    {screen==='home'&&<div className="screen anim">
+    {screen==='home'&&<div className="screen anim home-screen">
 
       {/* ── Header ── */}
-      <div className="home-header">
-        <div style={{width:38,flexShrink:0}}/>
-        <span className="home-header-title">Flash<em>Bacon</em></span>
+      <div className="home-hdr2">
+        <span className="home-brand2">FLASHBACON</span>
         <button className="account-btn" onClick={()=>setScreen('profilo')}>
           {utente?.nome?.[0]?.toUpperCase()||'?'}
         </button>
       </div>
 
-      {/* ── Body ── */}
-      <div className="home-body">
+      <div className="home-layout2">
 
-        {/* Materie section header */}
-        <div className="home-section-hdr">
-          <span className="section-title">Le tue materie</span>
-          {selMaterie.size>0
-            ?<button className="btn-sm danger" onClick={()=>setDialog({icon:'🗑️',title:'Elimina materie?',msg:`Eliminare ${selMaterie.size} materie con tutti i contenuti?`,confirmLabel:'Elimina',danger:true,onConfirm:()=>deleteMaterie(selMaterie)})}>🗑 Elimina {selMaterie.size}</button>
-            :<button className="home-add-mat-btn" onClick={()=>{setNewMatNome('');setNewMatEmoji('📚');setSheetMat(true)}}>
-              <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-              Nuova
-            </button>
-          }
-        </div>
+        {/* ── Left: materie tiles + azioni ── */}
+        <div className="home-col-left">
 
-        {/* Materie grid */}
-        {materie.length===0
-          ?<div className="empty"><span>📚</span><p>Nessuna materia. Usa il pulsante + qui sotto per iniziare!</p></div>
-          :<div className="materia-grid">
+          <div className="materie-tiles">
             {materie.map(m=>{
               const isSel=selMaterie.has(m.id)
               return(
-                <div key={m.id} className={`materia-card${isSel?' selected':''}`}
+                <div key={m.id}
+                  className={`materia-tile2${isSel?' selected':''}`}
+                  style={m.cover_url?{backgroundImage:`url(${m.cover_url})`}:{}}
                   onClick={()=>{
                     if(selMaterie.size>0){const n=new Set(selMaterie);n.has(m.id)?n.delete(m.id):n.add(m.id);setSelMaterie(n);return}
-                    setCurMateriaId(m.id);loadArgomenti(m.id);setScreen('argomenti')
+                    setCurMateriaId(m.id)
+                    loadArgomenti(m.id)
+                    if(window.innerWidth<1024) setScreen('argomenti')
                   }}
                   onContextMenu={e=>{e.preventDefault();const n=new Set(selMaterie);n.has(m.id)?n.delete(m.id):n.add(m.id);setSelMaterie(n)}}
+                  onTouchStart={()=>{lpRef.current=setTimeout(()=>{const n=new Set(selMaterie);n.has(m.id)?n.delete(m.id):n.add(m.id);setSelMaterie(n)},600)}}
+                  onTouchEnd={()=>clearTimeout(lpRef.current)}
                 >
+                  {m.cover_url&&<div className="materia-tile2-ov"/>}
                   {selMaterie.size>0&&<div className={`sel-check${isSel?' checked':''}`}>{isSel&&<svg width="12" height="12" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>}</div>}
-                  <SubjectIcon emoji={m.emoji}/>
-                  <div className="materia-name">{m.nome}</div>
-                  <div className="materia-count">{argomenti.filter(a=>a.materia_id===m.id).length} argomenti</div>
+                  <span className="materia-tile2-name">{m.nome}</span>
                 </div>
               )
             })}
+            {/* Tile "+" — stessa azione del vecchio big-plus */}
+            <div className="materia-tile2 materia-tile2-add" onClick={()=>setShowUploadModal(true)}>
+              <span className="materia-tile2-plus">+</span>
+            </div>
           </div>
-        }
 
-        {/* Pulsante + AI upload + Ripasso */}
-        <div className="home-actions">
-          <div className="big-plus-wrap">
-            <button className="big-plus-btn" onClick={()=>setShowUploadModal(true)}>
-              <svg width="32" height="32" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-            </button>
-            <span className="big-plus-label">Carica e analizza con AI</span>
+          {/* Bottoni azione */}
+          <div className="home-action-row">
+            {selMaterie.size>0
+              ?<button className="home-action-btn home-action-danger" style={{flex:1}} onClick={()=>setDialog({icon:'🗑️',title:'Elimina materie?',msg:`Eliminare ${selMaterie.size} materie con tutti i contenuti?`,confirmLabel:'Elimina',danger:true,onConfirm:()=>deleteMaterie(selMaterie)})}>🗑 Elimina {selMaterie.size}</button>
+              :<>
+                <button className="home-action-btn" onClick={()=>{setNewMatNome('');setNewMatEmoji('📚');setSheetMat(true)}}>Nuova materia</button>
+                <button className="home-action-btn home-action-accent" onClick={()=>setShowUploadModal(true)}>✦ Carica fonti</button>
+              </>
+            }
           </div>
-          <button className="ripasso-home-btn" onClick={()=>{setRStep(1);setRMat(null);setRArgs([]);setScreen('ripasso')}}>
-            <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 8v4l3 3M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+
+          {/* Ripasso — sticky in fondo se ci sono materie */}
+          <button className={`home-ripasso2${materie.length>0?' home-ripasso2-sticky':''}`} onClick={()=>{setRStep(1);setRMat(null);setRArgs([]);setScreen('ripasso')}}>
             Ripasso
           </button>
+
+        </div>
+
+        {/* ── Right: argomenti (visibile solo desktop ≥1024px) ── */}
+        <div className="home-col-right">
+          {curMateriaId&&argomenti.filter(a=>a.materia_id===curMateriaId).length>0
+            ?<>
+              <div className="home-col-right-title">{materie.find(m=>m.id===curMateriaId)?.nome}</div>
+              <div className="argomenti-list">
+                {argomenti.filter(a=>a.materia_id===curMateriaId).map(a=>(
+                  <div key={a.id} className="argomento-row" onClick={()=>openArgomento(a)}>
+                    <div className="argomento-name">{a.nome}</div>
+                    <span style={{color:'var(--muted)'}}>›</span>
+                  </div>
+                ))}
+              </div>
+            </>
+            :<div className="home-col-right-empty"><p>← Seleziona una materia</p></div>
+          }
         </div>
 
       </div>

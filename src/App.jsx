@@ -211,6 +211,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   const [rShowForm,setRShowForm]=useState(false)
   const [rEditId,setREditId]=useState(null)
   const [ripassiGenerating,setRipassiGenerating]=useState(false)
+  const [ripassiGeneratingId,setRipassiGeneratingId]=useState(null)
   const [ripassiQuiz,setRipassiQuiz]=useState({}) // ripasso_id -> quiz row
   // Materia image search
   const [matImgQuery,setMatImgQuery]=useState('')
@@ -387,12 +388,10 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   async function loadRipassiQuiz(list){
     const ids=(list||ripassi).map(r=>r.id)
     if(!ids.length)return
-    try{
-      const{data}=await supabase.from('ripassi_quiz').select('*').in('ripasso_id',ids).order('created_at',{ascending:false})
-      const map={}
-      for(const q of (data||[])){if(!map[q.ripasso_id])map[q.ripasso_id]=q}
-      setRipassiQuiz(map)
-    }catch{} // table may not exist yet — handle gracefully
+    const{data}=await supabase.from('ripassi_quiz').select('*').in('ripasso_id',ids).order('created_at',{ascending:false})
+    const map={}
+    for(const q of (data||[])){if(!map[q.ripasso_id])map[q.ripasso_id]=q}
+    setRipassiQuiz(map)
   }
   async function loadTokenUsage(email){
     const{data}=await supabase.from('profili').select('token_usati,token_reset_date,ruolo').eq('email',email).single()
@@ -697,30 +696,20 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     const argomentoId=rArgs.length===1?rArgs[0]:null
     const fields={nome:rNome||null,materia_id:rMat,argomento_id:argomentoId,frequenza:rFreq,orario:rOrario,difficolta:2,quiz_num:rQNum,quiz_modalita:rQMode,prompt_personalizzato:rPrompt||null}
     let ripassoRow
-    try{
-      if(rEditId){
-        const{data}=await supabase.from('studio_pianificato').update(fields).eq('id',rEditId).select().single()
-        ripassoRow=data;setRipassi(p=>p.map(r=>r.id===rEditId?data:r))
-      }else{
-        const{data}=await supabase.from('studio_pianificato').insert({...fields,utente_email:utente.email}).select().single()
-        ripassoRow=data;if(data)setRipassi(p=>[...p,data])
-      }
-    }catch(e){
-      // fallback: save without new columns if migration not yet run
-      if(rEditId){
-        const{data}=await supabase.from('studio_pianificato').update({materia_id:rMat,argomento_id:argomentoId,frequenza:rFreq,orario:rOrario,difficolta:2,quiz_num:rQNum,quiz_modalita:rQMode}).eq('id',rEditId).select().single()
-        ripassoRow=data;setRipassi(p=>p.map(r=>r.id===rEditId?data:r))
-      }else{
-        const{data}=await supabase.from('studio_pianificato').insert({utente_email:utente.email,materia_id:rMat,argomento_id:argomentoId,frequenza:rFreq,orario:rOrario,difficolta:2,quiz_num:rQNum,quiz_modalita:rQMode}).select().single()
-        ripassoRow=data;if(data)setRipassi(p=>[...p,data])
-      }
+    if(rEditId){
+      const{data}=await supabase.from('studio_pianificato').update(fields).eq('id',rEditId).select().single()
+      ripassoRow=data;setRipassi(p=>p.map(r=>r.id===rEditId?data:r))
+    }else{
+      const{data}=await supabase.from('studio_pianificato').insert({...fields,utente_email:utente.email}).select().single()
+      ripassoRow=data;if(data)setRipassi(p=>[...p,data])
     }
     toast(rEditId?'Ripasso aggiornato ✓':'Ripasso pianificato ✓')
     setRShowForm(false);setREditId(null)
     if(ripassoRow){
+      setRipassiGeneratingId(ripassoRow.id)
       setRipassiGenerating(true)
       try{await generateRipassoAndSaveToTable(ripassoRow)}
-      finally{setRipassiGenerating(false)}
+      finally{setRipassiGenerating(false);setRipassiGeneratingId(null)}
     }
   }
   async function generateRipassoAndSaveToTable(r){
@@ -743,13 +732,10 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       if(!res.ok)return
       const quizResult=await readAIStream(res,null)
       const parsed=mode==='multipla'?parseQuiz(quizResult):parseOpenQuiz(quizResult)
-      try{
-        const{data:qRow}=await supabase.from('ripassi_quiz').insert({ripasso_id:r.id,domande:parsed,modalita:mode}).select().single()
-        if(qRow)setRipassiQuiz(p=>({...p,[r.id]:qRow}))
-      }catch{
-        // ripassi_quiz table not yet created — store in storico as fallback
-        await supabase.from('storico').insert({utente_email:utente.email,materia_id:r.materia_id,argomento_id:argId,tipo:mode==='multipla'?'quiz':'quiz-aperta',contenuto:quizResult})
-      }
+      // Sostituisci sempre il quiz più recente (delete vecchio + insert nuovo)
+      await supabase.from('ripassi_quiz').delete().eq('ripasso_id',r.id)
+      const{data:qRow}=await supabase.from('ripassi_quiz').insert({ripasso_id:r.id,domande:parsed,modalita:mode}).select().single()
+      if(qRow)setRipassiQuiz(p=>({...p,[r.id]:qRow}))
       showAIDone('✅ Quiz ripasso pronto!')
     }catch(e){console.warn('generateRipassoAndSaveToTable:',e.message);toast('⚠️ Quiz: '+e.message)}
   }
@@ -780,7 +766,12 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       showAIDone('✅ Quiz ripasso generato e salvato nel Lab!')
     }catch(e){console.warn('generateRipassoAndSave:',e.message)}
   }
-  async function deleteRipasso(id){await supabase.from('studio_pianificato').delete().eq('id',id);setRipassi(p=>p.filter(r=>r.id!==id));toast('Eliminato')}
+  async function deleteRipasso(id){
+    await supabase.from('studio_pianificato').delete().eq('id',id)
+    setRipassi(p=>p.filter(r=>r.id!==id))
+    setRipassiQuiz(p=>{const n={...p};delete n[id];return n})
+    toast('Eliminato')
+  }
 
   async function startRipassoQuiz(r){
     // Load the argomento's fonti, then auto-generate quiz
@@ -1366,7 +1357,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
               {ripassi.map(r=>{
                 const mat=materie.find(m=>m.id===r.materia_id)
                 const hasQuiz=!!ripassiQuiz[r.id]
-                const isGenerating=ripassiGenerating&&rEditId===r.id
+                const isGenerating=ripassiGeneratingId===r.id
                 return(
                   <div key={r.id} className={`ripasso-item2${rEditId===r.id&&rShowForm?' rp-active':''}`}>
                     <div className="ripasso-item2-main" onClick={()=>openRipassoQuizFromTable(r)}>

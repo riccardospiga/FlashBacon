@@ -24,6 +24,23 @@ function LogoSVG({size=36}){
 function Brand({size='1.1rem'}){return <div className="brand-name" style={{fontSize:size}}>Flash<em>Bacon</em></div>}
 function Spinner(){return <div className="ai-spinner"/>}
 
+/* ═══ APP HEADER — uniforme: back sinistra, titolo centrato, avatar destra ═══ */
+function AppHeader({title, onBack, backLabel='← Indietro', right=null, titleNode=null}){
+  return(
+    <div className="app-header">
+      <div className="app-header-left">
+        {onBack&&<button className="back-btn" onClick={onBack}>{backLabel}</button>}
+      </div>
+      <div className="app-header-title">
+        {titleNode||title}
+      </div>
+      <div className="app-header-right">
+        {right}
+      </div>
+    </div>
+  )
+}
+
 /* ═══ OUTPUT CFG SHEET ═══ */
 function OutputCfgSheet({tool, cfg, onChange, onGenerate, onClose}){
   const isQuiz=tool==='quiz'||tool==='quiz-aperta'
@@ -79,17 +96,25 @@ function OutputCfgSheet({tool, cfg, onChange, onGenerate, onClose}){
 }
 
 /* ═══ PROMPT MODE SHEET ═══ */
-function PromptModeSheet({mode, customPrompt, onChange, onClose}){
+function PromptModeSheet({mode, customPrompt, onChange, onClose, chatLength=2, onLengthChange}){
   const [localCustom,setLocalCustom]=useState(customPrompt||'')
   const opts=[
-    {key:'default',icon:'🤖',title:'Predefinita',desc:"L'AI risponde in modo bilanciato e informativo"},
-    {key:'learning',icon:'🎓',title:'Guida all\'apprendimento',desc:"L'AI cerca di farti capire i concetti, non solo darli"},
-    {key:'custom',icon:'✍️',title:'Prompt personalizzato',desc:'Definisci tu come l\'AI deve risponderti'},
+    {key:'default',icon:'🤖',title:'Predefinita',desc:"Risposta bilanciata e informativa"},
+    {key:'learning',icon:'🎓',title:'Guida all\'apprendimento',desc:"Concetti spiegati con analogie e connessioni"},
+    {key:'custom',icon:'✍️',title:'Prompt personalizzato',desc:'Definisci tu lo stile di risposta'},
   ]
   return(
     <div className="sheet-ov" onClick={onClose}>
       <div className="sheet" onClick={e=>e.stopPropagation()}>
-        <h3>💬 Stile risposta AI</h3>
+        <h3>Impostazioni risposta</h3>
+        <div className="cfg-row" style={{marginBottom:12}}>
+          <span className="cfg-label">Lunghezza</span>
+          <div className="cfg-btns">
+            {[['Breve',1],['Media',2],['Lunga',3]].map(([l,v])=>(
+              <button key={v} className={`cfg-btn${chatLength===v?' active':''}`} onClick={()=>onLengthChange?.(v)}>{l}</button>
+            ))}
+          </div>
+        </div>
         <div className="prompt-mode-opts">
           {opts.map(o=>(
             <div key={o.key} className={`prompt-mode-opt ${mode===o.key?'active':''}`} onClick={()=>onChange({mode:o.key,customPrompt:localCustom})}>
@@ -99,7 +124,7 @@ function PromptModeSheet({mode, customPrompt, onChange, onClose}){
           ))}
         </div>
         {mode==='custom'&&(
-          <textarea className="prompt-custom-input" placeholder="Es: Rispondimi come se fossi un professore universitario, usa esempi pratici…" value={localCustom} onChange={e=>{setLocalCustom(e.target.value);onChange({mode:'custom',customPrompt:e.target.value})}}/>
+          <textarea className="prompt-custom-input" placeholder="Es: Rispondimi come un professore universitario, usa esempi pratici…" value={localCustom} onChange={e=>{setLocalCustom(e.target.value);onChange({mode:'custom',customPrompt:e.target.value})}}/>
         )}
         <button className="btn-primary" onClick={onClose}>Salva</button>
       </div>
@@ -201,12 +226,18 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   const [rStep,setRStep]=useState(1)
   const [rMat,setRMat]=useState(null)
   const [rArgs,setRArgs]=useState([])  // empty = tutti
-  const [rFreq,setRFreq]=useState('settimanale')
+  const [rFreq,setRFreq]=useState('lun') // 'giornaliero' | 'lun'...'dom'
   const [rOrario,setROrario]=useState('08:00')
   const [rQNum,setRQNum]=useState(10)
   const [rQMode,setRQMode]=useState('multipla')
-  // Mobile inline argomenti view (replaces intermediate argomenti screen)
-  const [mobileArgView,setMobileArgView]=useState(false)
+  // Profilo delete confirm
+  const [deleteConfirmStep,setDeleteConfirmStep]=useState(0)
+  const [deleteConfirmText,setDeleteConfirmText]=useState('')
+  // Guida search
+  const [guidaSearch,setGuidaSearch]=useState('')
+  // Desktop 3-col widths (%)
+  const [colWidths,setColWidths]=useState([25,45,30])
+  const dragRef=useRef(null) // {col: 0|1, startX, startWidths}
   // Ripasso V2
   const [rNome,setRNome]=useState('')
   const [rPrompt,setRPrompt]=useState('')
@@ -246,13 +277,13 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
 
   /* ── ANDROID BACK ── */
   useEffect(()=>{
-    const backMap={argomento:'home',profilo:'home',admin:'profilo',ripasso:'home',impostazioni:'profilo'}
+    const backMap={materia:'home',profilo:'home',admin:'profilo',ripasso:'home',impostazioni:'profilo',argomenti:'home',guida:'profilo'}
     const handler=e=>{
       if(fullpage){e.preventDefault();setFullpage(null);return}
       if(dialog){e.preventDefault();setDialog(null);return}
       const sheets=[sheetMat,sheetArg,sheetRename,sheetOutputCfg,sheetPromptMode]
       if(sheets.some(Boolean)){e.preventDefault();closeAllSheets();return}
-      const next=backMap[screen]
+      const next=screen==='argomento'?(window.innerWidth<769?'materia':'home'):backMap[screen]
       if(next){e.preventDefault();navTo(next)}
     }
     window.addEventListener('popstate',handler)
@@ -271,6 +302,8 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       sessionStorage.setItem('fb_tab',argTab)
     }
   },[screen,curMateriaId,curArgId,argTab])
+
+  /* ── COMPUTED token blocked ── */
 
   /* ── AUTH INIT ── */
   useEffect(()=>{
@@ -302,8 +335,10 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     const check=()=>{
       const now=new Date()
       const hhmm=now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0')
+      const DOW=['dom','lun','mar','mer','gio','ven','sab'][now.getDay()]
       ripassi.forEach(r=>{
-        if(r.orario===hhmm){
+        const freqOk=r.frequenza==='giornaliero'||r.frequenza===DOW||r.frequenza==='settimanale'
+        if(r.orario===hhmm&&freqOk){
           const mat=materie.find(m=>m.id===r.materia_id)
           // Push notification (device-level)
           if('Notification' in window&&Notification.permission==='granted'){
@@ -353,8 +388,24 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       const isNew=!localStorage.getItem('fb_onb_'+u.id)
       if(isNew){setOnb(true);setOnbStep(0)}
       const ss=sessionStorage.getItem('fb_screen'),sm=sessionStorage.getItem('fb_mat'),sa=sessionStorage.getItem('fb_arg'),st=sessionStorage.getItem('fb_tab')
-      if(ss==='argomento'&&sm&&sa){setCurMateriaId(sm);setCurArgId(sa);await loadFonti(sa,sm);await loadStorico(sa);if(st)setArgTab(st);setScreen('argomento')}
-      else if(ss==='argomenti'&&sm){setCurMateriaId(sm);loadArgomenti(sm);setScreen('argomenti')}
+      if(ss==='argomento'&&sm&&sa){
+        setCurMateriaId(sm);setCurArgId(sa);
+        await loadFonti(sa,sm);
+        const stData=await loadStorico(sa);
+        const msgs=[];
+        for(const e of stData.filter(s=>s.tipo==='chat').reverse()){
+          const lines=e.contenuto.split('\n');let cur=null
+          for(const line of lines){
+            if(line.startsWith('Tu: ')){if(cur)msgs.push(cur);cur={role:'user',content:line.slice(4)}}
+            else if(line.startsWith('AI: ')){if(cur)msgs.push(cur);cur={role:'ai',content:line.slice(4)}}
+            else if(cur){cur.content+='\n'+line}
+          }
+          if(cur)msgs.push(cur)
+        }
+        setChatMsgs(msgs)
+        if(st)setArgTab(st);setScreen('argomento')
+      }
+      else if(ss==='materia'&&sm){setCurMateriaId(sm);loadArgomenti(sm);setScreen('materia')}
       else setScreen('home')
     }catch{
       const u={id:user.id,nome:user.email.split('@')[0],email:user.email,is_admin:false}
@@ -370,7 +421,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     const{data}=await q.order('created_at')
     setFonti(data||[])
   }
-  async function loadStorico(aid){const{data}=await supabase.from('storico').select('*').eq('argomento_id',aid).order('created_at',{ascending:false});setStorico(data||[])}
+  async function loadStorico(aid){const{data}=await supabase.from('storico').select('*').eq('argomento_id',aid).order('created_at',{ascending:false});setStorico(data||[]);return data||[]}
   async function openArgomento(a){
     setCurArgId(a.id);setArgTab('chat');setChatMsgs([])
     loadFonti(a.id,curMateriaId)
@@ -389,6 +440,31 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     }
     setChatMsgs(msgs)
     setScreen('argomento')
+  }
+
+  /* Drag handlers per 3-col desktop */
+  function startDrag(col,e){
+    e.preventDefault()
+    dragRef.current={col,startX:e.clientX,startWidths:[...colWidths]}
+    const onMove=mv=>{
+      if(!dragRef.current)return
+      const dx=mv.clientX-dragRef.current.startX
+      const totalW=window.innerWidth
+      const dpct=dx/totalW*100
+      const w=[...dragRef.current.startWidths]
+      const MIN=12
+      if(col===0){
+        w[0]=Math.max(MIN,Math.min(w[0]+w[1]-MIN,w[0]+dpct))
+        w[1]=100-w[0]-w[2]
+      }else{
+        w[1]=Math.max(MIN,Math.min(w[0]+w[1]-MIN,w[1]+dpct))
+        w[2]=100-w[0]-w[1]
+      }
+      if(w[0]>=MIN&&w[1]>=MIN&&w[2]>=MIN)setColWidths(w)
+    }
+    const onUp=()=>{dragRef.current=null;window.removeEventListener('mousemove',onMove);window.removeEventListener('mouseup',onUp)}
+    window.addEventListener('mousemove',onMove)
+    window.addEventListener('mouseup',onUp)
   }
   async function loadProviders(){const{data}=await supabase.from('ai_providers').select('*').order('created_at');setProviders(data||[])}
   async function loadRipassi(email){const{data}=await supabase.from('studio_pianificato').select('*').eq('utente_email',email).order('created_at',{ascending:true});setRipassi(data||[]);return data||[]}
@@ -415,7 +491,6 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     if(sc==='home'){
       if(utente?.email)loadMaterie(utente.email)
       setLabInline(null)
-      setMobileArgView(false)
       setScreen('home');return
     }
     setScreen(sc)
@@ -428,9 +503,18 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   function confirmDeleteAccount(){setDialog({icon:'⚠️',title:'Elimina account',msg:'Tutti i dati verranno eliminati definitivamente.',confirmLabel:'Sì, elimina',danger:true,onConfirm:async()=>{await supabase.from('profili').delete().eq('id',utente.id);await doLogout()}})}
 
   /* ── MATERIE ── */
+  // Genera cover via Pollinations.ai (no API key richiesta)
+  function pollinationsUrl(nome){
+    const prompt=encodeURIComponent(`${nome} academic study subject, dark background, minimal, abstract, professional, high quality`)
+    const seed=Math.abs(nome.split('').reduce((a,c)=>a+c.charCodeAt(0),0))%9999
+    return `https://image.pollinations.ai/prompt/${prompt}?width=400&height=400&seed=${seed}&nologo=true&model=flux`
+  }
+
   async function saveMateria(){
     if(!newMatNome.trim())return
-    const{data,error}=await supabase.from('materie').insert({utente_email:utente.email,nome:newMatNome.trim(),emoji:newMatEmoji,cover_image:newMatCoverImg||null,dizionario:newMatDizionario,lingua:newMatDizionario?newMatLingua.trim()||null:null}).select().single()
+    // Se nessuna immagine selezionata, usa Pollinations.ai
+    const coverImg=newMatCoverImg||pollinationsUrl(newMatNome.trim())
+    const{data,error}=await supabase.from('materie').insert({utente_email:utente.email,nome:newMatNome.trim(),emoji:newMatEmoji,cover_image:coverImg,dizionario:newMatDizionario,lingua:newMatDizionario?newMatLingua.trim()||null:null}).select().single()
     if(!error){setMaterie(p=>[...p,data]);toast('Materia creata ✓')}
     setSheetMat(false);setNewMatNome('');setNewMatCoverImg(null);setMatImgQuery('');setMatImgResults([]);setNewMatDizionario(false);setNewMatLingua('')
   }
@@ -441,7 +525,11 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       const r=await fetch(`/api/unsplash?q=${encodeURIComponent(q)}`)
       const d=await r.json()
       setMatImgResults(d.results||[])
-    }catch{toast('Errore ricerca immagini')}
+    }catch{
+      // Fallback: usa Pollinations.ai per preview
+      setMatImgResults([])
+      toast('Anteprima non disponibile, verrà generata alla creazione')
+    }
     setMatImgLoading(false)
   }
   async function deleteMaterie(ids){for(const id of ids)await supabase.from('materie').delete().eq('id',id);setMaterie(p=>p.filter(m=>!ids.has(m.id)));setSelMaterie(new Set());toast('Eliminato ✓')}
@@ -468,7 +556,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     // Include both argomento-specific fonti AND shared fonti (argomento_id===null) for this materia
     const af=fonti.filter(f=>f.argomento_id===curArgId||f.argomento_id===null)
     const images=af.filter(f=>(f.tipo==='file'||f.tipo==='audio')&&(isImgExt(getExt(f.nome))||getExt(f.nome)==='pdf')).map(f=>f.url)
-    const textSources=af.filter(f=>f.tipo==='text').map(f=>f.testo||'')
+    const textSources=af.filter(f=>f.testo).map(f=>f.testo||'')
     const urlSources=af.filter(f=>f.tipo==='url'||f.tipo==='youtube').map(f=>f.url)
     const docUrls=af.filter(f=>f.tipo==='file'&&!isImgExt(getExt(f.nome))&&getExt(f.nome)!=='pdf').map(f=>f.url)
     const fileNames=af.map(f=>`[Fonte: ${f.nome}]`).join(', ')
@@ -680,7 +768,9 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   function editRipasso(r){
     setREditId(r.id);setRNome(r.nome||'');setRMat(r.materia_id)
     setRArgs(r.argomento_id?[r.argomento_id]:[])
-    setRFreq(r.frequenza||'settimanale');setROrario(r.orario||'08:00')
+    // Normalize legacy frequency values
+    const freq=r.frequenza==='settimanale'?'lun':r.frequenza==='personalizzato'?'lun':(r.frequenza||'lun')
+    setRFreq(freq);setROrario(r.orario||'08:00')
     setRQNum(r.quiz_num||10);setRQMode(r.quiz_modalita||'multipla')
     setRPrompt(r.prompt_personalizzato||'')
     loadArgomenti(r.materia_id);setRShowForm(true)
@@ -693,7 +783,10 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     const mode=quiz.modalita||r.quiz_modalita||'multipla'
     const domande=quiz.domande||[]
     if(!domande.length){startRipassoQuiz(r);return}
-    if(mode==='multipla'){
+    if(mode==='flashcard'){
+      setFcCards(domande);setFcIdx(0);setFcFlipped(false)
+      setFullpage({title:'Flashcard Ripasso',type:'fc',data:domande})
+    } else if(mode==='multipla'){
       setQuizData(domande);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([])
       setFullpage({title:'Quiz Ripasso',type:'quiz',data:domande})
     }else{
@@ -736,18 +829,26 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       const fileNames=af.map(f=>`[Fonte: ${f.nome}]`).join(', ')
       const cfg={num:r.quiz_num||10,diff:2,length:2}
       const mode=(r.quiz_modalita==='misto'?'multipla':r.quiz_modalita)||'multipla'
-      const basePrompt=buildQuizPromptDirect(r,cfg,mode)
-      const finalPrompt=r.prompt_personalizzato?basePrompt+`\n\nFocus: ${r.prompt_personalizzato}`:basePrompt
       const systemContext=buildSystemContext()
+      let finalPrompt
+      if(mode==='flashcard'){
+        const mat=materie.find(m=>m.id===r.materia_id)
+        const arg=argomenti.find(a=>a.id===r.argomento_id)
+        finalPrompt=`Materia: "${mat?.nome}" — Argomento: "${arg?.nome||'generale'}"\n\nCrea esattamente ${cfg.num} flash card in italiano basate sulle fonti.\nFORMATO (separato da ---):\nFRONTE: [concetto/domanda]\nRETRO: [definizione/risposta]\n---`
+        if(r.prompt_personalizzato) finalPrompt+=`\n\nFocus: ${r.prompt_personalizzato}`
+      } else {
+        const basePrompt=buildQuizPromptDirect(r,cfg,mode)
+        finalPrompt=r.prompt_personalizzato?basePrompt+`\n\nFocus: ${r.prompt_personalizzato}`:basePrompt
+      }
       const res=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:finalPrompt,images,textSources,urlSources,settings:{length:2},systemContext,fileNames,userEmail:utente?.email||''})})
       if(!res.ok)return
       const quizResult=await readAIStream(res,null)
-      const parsed=mode==='multipla'?parseQuiz(quizResult):parseOpenQuiz(quizResult)
+      const parsed=mode==='flashcard'?parseFC(quizResult):mode==='multipla'?parseQuiz(quizResult):parseOpenQuiz(quizResult)
       // Sostituisci sempre il quiz più recente (delete vecchio + insert nuovo)
       await supabase.from('ripassi_quiz').delete().eq('ripasso_id',r.id)
       const{data:qRow}=await supabase.from('ripassi_quiz').insert({ripasso_id:r.id,domande:parsed,modalita:mode}).select().single()
       if(qRow)setRipassiQuiz(p=>({...p,[r.id]:qRow}))
-      showAIDone('✅ Quiz ripasso pronto!')
+      showAIDone(mode==='flashcard'?'Flashcard ripasso pronte!':'Quiz ripasso pronto!')
     }catch(e){console.warn('generateRipassoAndSaveToTable:',e.message);toast('⚠️ Quiz: '+e.message)}
   }
 
@@ -920,7 +1021,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     </div>}
 
     {/* LOGIN */}
-    {screen==='login'&&<div className="screen" style={{background:'var(--gradient)',alignItems:'center',justifyContent:'center',padding:24}}>
+    {screen==='login'&&<div className="screen" style={{background:'var(--bg)',alignItems:'center',justifyContent:'center',padding:24}}>
       <div className="login-card">
         <div className="login-header"><LogoSVG size={72}/><Brand size="1.6rem"/><p>Studia più veloce con l'AI</p></div>
         <div className="tabs">
@@ -944,65 +1045,53 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     {/* HOME */}
     {screen==='home'&&<div className="screen anim home-screen">
 
-      {/* ── Header ── */}
-      <div className="home-hdr2">
-        <span className="home-brand2">FLASHBACON</span>
-        <button className="account-btn" onClick={()=>setScreen('profilo')}>
-          {utente?.nome?.[0]?.toUpperCase()||'?'}
-        </button>
+      {/* ── Header: titolo centrato, avatar destra ── */}
+      <div className="app-header">
+        <div className="app-header-left"/>
+        <div className="app-header-title" style={{fontFamily:"'Syne',sans-serif",fontWeight:800,letterSpacing:'1px',fontSize:'1.05rem'}}>FLASHBACON</div>
+        <div className="app-header-right">
+          <button className="account-btn" onClick={()=>setScreen('profilo')}>
+            {utente?.nome?.[0]?.toUpperCase()||'?'}
+          </button>
+        </div>
       </div>
 
       <div className="home-layout2">
 
-        {/* ── Left: materie tiles + azioni ── */}
+        {/* ── Left: materie tiles ── */}
         <div className="home-col-left">
 
-          {/* Mobile: inline argomenti view (replaces intermediate screen) */}
-          {mobileArgView&&<div className="home-mob-args">
-            <div className="home-mob-args-hdr">
-              <button className="back-btn" onClick={()=>setMobileArgView(false)}>← Materie</button>
-              <span className="home-mob-args-title">{materie.find(m=>m.id===curMateriaId)?.nome}</span>
-              <button className="icon-btn" onClick={()=>{setNewArgNome('');setSheetArg(true)}}>
-                <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-              </button>
-            </div>
-            <div className="argomenti-list" style={{padding:'12px 16px',flex:1,overflowY:'auto'}}>
-              {argomenti.filter(a=>a.materia_id===curMateriaId).length===0
-                ?<div className="empty"><span>📝</span><p>Nessun argomento. Creane uno!</p></div>
-                :argomenti.filter(a=>a.materia_id===curMateriaId).map(a=>(
-                  <div key={a.id} className="argomento-row" onClick={()=>openArgomento(a)}>
-                    <div className="argomento-name">{a.nome}</div>
-                    <span style={{color:'var(--muted)'}}>›</span>
-                  </div>
-                ))
-              }
-            </div>
+          {/* Selezione multipla bar */}
+          {selMaterie.size>0&&<div className="sel-bar" style={{marginBottom:10}}>
+            <span>{selMaterie.size} selezionate</span>
+            <button className="btn-sm danger" onClick={()=>setDialog({icon:'🗑️',title:'Elimina materie?',msg:`Eliminare ${selMaterie.size} materie con tutti i contenuti?`,confirmLabel:'Elimina',danger:true,onConfirm:()=>deleteMaterie(selMaterie)})}>Elimina</button>
           </div>}
 
-          {/* Tiles scorribili (hidden on mobile when argomenti view is active) */}
-          <div className={`home-tiles-scroll${mobileArgView?' home-tiles-hidden':''}`}>
+          {/* Tiles */}
+          <div className="home-tiles-scroll">
             {materie.length===0
-              ?<div className="empty" style={{padding:'32px 0'}}><span>📚</span><p>Nessuna materia ancora. Crea la prima!</p></div>
+              ?<div className="empty" style={{padding:'40px 0'}}><span>📚</span><p>Nessuna materia ancora. Carica con il &quot;+&quot; qui sotto!</p></div>
               :<div className="materie-tiles">
-                {materie.map(m=>{
+                {materie.map((m,idx)=>{
                   const isSel=selMaterie.has(m.id)
                   const cover=m.cover_image||m.cover_url
+                  const gradClass=`materia-tile2-grad-${idx%6}`
                   return(
                     <div key={m.id}
-                      className={`materia-tile2${isSel?' selected':''}`}
+                      className={`materia-tile2${isSel?' selected':''} ${!cover?gradClass:''}`}
                       style={cover?{backgroundImage:`url(${cover})`}:{}}
                       onClick={()=>{
                         if(selMaterie.size>0){const n=new Set(selMaterie);n.has(m.id)?n.delete(m.id):n.add(m.id);setSelMaterie(n);return}
                         setCurMateriaId(m.id)
                         loadArgomenti(m.id)
-                        if(window.innerWidth<1024) setMobileArgView(true)
+                        if(window.innerWidth<769)setScreen('materia')
                       }}
                       onContextMenu={e=>{e.preventDefault();const n=new Set(selMaterie);n.has(m.id)?n.delete(m.id):n.add(m.id);setSelMaterie(n)}}
                       onTouchStart={()=>{lpRef.current=setTimeout(()=>{const n=new Set(selMaterie);n.has(m.id)?n.delete(m.id):n.add(m.id);setSelMaterie(n)},600)}}
                       onTouchEnd={()=>clearTimeout(lpRef.current)}
                     >
                       {cover&&<div className="materia-tile2-ov"/>}
-                      {selMaterie.size>0&&<div className={`sel-check${isSel?' checked':''}`}>{isSel&&<svg width="12" height="12" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>}</div>}
+                      {selMaterie.size>0&&<div className={`sel-check${isSel?' checked':''}`} style={{position:'absolute',top:8,left:8}}>{isSel&&<svg width="12" height="12" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>}</div>}
                       <span className="materia-tile2-name">{m.nome}</span>
                     </div>
                   )
@@ -1011,37 +1100,55 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
             }
           </div>
 
-          {/* Bottoni fissi in basso (hidden in mobile arg view) */}
-          <div className={`home-bottom-actions${mobileArgView?' home-tiles-hidden':''}`}>
-            <div className="home-action-row">
-              {selMaterie.size>0
-                ?<button className="home-action-btn home-action-danger" style={{flex:1}} onClick={()=>setDialog({icon:'🗑️',title:'Elimina materie?',msg:`Eliminare ${selMaterie.size} materie con tutti i contenuti?`,confirmLabel:'Elimina',danger:true,onConfirm:()=>deleteMaterie(selMaterie)})}>🗑 Elimina {selMaterie.size}</button>
-                :<>
-                  <button className="home-action-btn" onClick={()=>{setNewMatNome('');setNewMatCoverImg(null);setMatImgResults([]);setMatImgQuery('');setSheetMat(true)}}>Nuova materia</button>
-                  <button className="home-action-btn home-action-accent" onClick={()=>setShowUploadModal(true)}>✦ Carica fonti</button>
-                </>
-              }
+          {/* FAB Upload centrale + Ripasso rettangolare */}
+          <div className="home-fab-row">
+            <div style={{display:'flex',alignItems:'center',gap:16}}>
+              <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6}}>
+                <button className="home-fab-upload" onClick={()=>setShowUploadModal(true)} title="Carica materiale con AI">+</button>
+                <span className="home-fab-label">Carica con AI</span>
+              </div>
+              <button className="home-fab-manual" onClick={()=>{setNewMatNome('');setNewMatCoverImg(null);setMatImgResults([]);setNewMatDizionario(false);setNewMatLingua('');setSheetMat(true)}} title="Crea materia vuota">
+                <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><path d="M12 10v4M10 12h4"/></svg>
+                <span>Nuova materia</span>
+              </button>
             </div>
-            <button className="home-ripasso2" onClick={()=>{openNewRipassoForm();setScreen('ripasso')}}>
-              Ripasso
-            </button>
+            <button className="home-ripasso-rect" onClick={()=>navTo('ripasso')}>Ripasso</button>
           </div>
 
         </div>
 
-        {/* ── Right: argomenti (visibile solo desktop ≥1024px) ── */}
+        {/* ── Right: argomenti (visibile solo desktop ≥769px) ── */}
         <div className="home-col-right">
-          {curMateriaId&&argomenti.filter(a=>a.materia_id===curMateriaId).length>0
+          {curMateriaId
             ?<>
-              <div className="home-col-right-title">{materie.find(m=>m.id===curMateriaId)?.nome}</div>
-              <div className="argomenti-list">
-                {argomenti.filter(a=>a.materia_id===curMateriaId).map(a=>(
-                  <div key={a.id} className="argomento-row" onClick={()=>openArgomento(a)}>
-                    <div className="argomento-name">{a.nome}</div>
-                    <span style={{color:'var(--muted)'}}>›</span>
-                  </div>
-                ))}
+              <div className="home-col-right-title" style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                <span>{materie.find(m=>m.id===curMateriaId)?.nome}</span>
+                <button className="icon-btn" style={{flexShrink:0}} onClick={()=>{setNewArgNome('');setSheetArg(true)}}>
+                  <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+                </button>
               </div>
+              {argomenti.filter(a=>a.materia_id===curMateriaId).length===0
+                ?<div className="empty"><span>📝</span><p>Nessun argomento. Creane uno!</p></div>
+                :<div className="argomenti-list">
+                  {argomenti.filter(a=>a.materia_id===curMateriaId).map(a=>(
+                    <div key={a.id}
+                      className={'argomento-row'+(selArg.has(a.id)?' selected':'')}
+                      onClick={()=>{if(selArg.size>0){const n=new Set(selArg);n.has(a.id)?n.delete(a.id):n.add(a.id);setSelArg(n);return}openArgomento(a)}}
+                      onContextMenu={e=>{e.preventDefault();const n=new Set(selArg);n.has(a.id)?n.delete(a.id):n.add(a.id);setSelArg(n)}}
+                      onTouchStart={()=>{lpRef.current=setTimeout(()=>{const n=new Set(selArg);n.has(a.id)?n.delete(a.id):n.add(a.id);setSelArg(n)},600)}}
+                      onTouchEnd={()=>clearTimeout(lpRef.current)}
+                    >
+                      {selArg.size>0&&<div className={'sel-check'+(selArg.has(a.id)?' checked':'')} style={{position:'static',flexShrink:0}}>{selArg.has(a.id)&&<svg width="12" height="12" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>}</div>}
+                      <div className="argomento-name">{a.nome}</div>
+                      <span style={{color:'var(--muted)'}}>›</span>
+                    </div>
+                  ))}
+                </div>
+              }
+              {selArg.size>0&&<div className="sel-bar" style={{marginTop:10}}>
+                <span>{selArg.size} selezionati</span>
+                <button className="btn-sm danger" onClick={()=>setDialog({icon:'🗑️',title:'Elimina argomenti?',msg:'Elimina gli argomenti selezionati?',confirmLabel:'Elimina',danger:true,onConfirm:()=>deleteArgomenti(selArg)})}>Elimina</button>
+              </div>}
             </>
             :<div className="home-col-right-empty"><p>← Seleziona una materia</p></div>
           }
@@ -1050,33 +1157,25 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       </div>
     </div>}
 
-    {/* ARGOMENTI */}
-    {screen==='argomenti'&&<div className="screen anim">
-      <div className="top-bar">
-        <button className="back-btn" onClick={()=>navTo('home')}>← Home</button>
-        <button className="icon-btn" onClick={()=>{setNewArgNome('');setSheetArg(true)}}>
-          <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-        </button>
-      </div>
-      <div className="screen-title-bar">
-        {editingMateriaTitle
-          ?<input
-              className="materia-title-input"
-              value={materiaTitleVal}
-              onChange={e=>setMaterialaTitleVal(e.target.value)}
-              onBlur={()=>{renameMateria(curMateriaId,materiaTitleVal);setEditingMateriaTitle(false)}}
-              onKeyDown={e=>{if(e.key==='Enter'){renameMateria(curMateriaId,materiaTitleVal);setEditingMateriaTitle(false)}else if(e.key==='Escape')setEditingMateriaTitle(false)}}
-              autoFocus
-            />
-          :<h1 className="materia-title-editable" onClick={()=>{setMaterialaTitleVal(curMateria?.nome||'');setEditingMateriaTitle(true)}}>
-            {curMateria?.emoji} {curMateria?.nome}
-          </h1>
+    {/* MATERIA — pannello argomenti (mobile: schermata dedicata) */}
+    {screen==='materia'&&<div className="screen anim materia-screen">
+      <AppHeader
+        title={curMateria?.nome||''}
+        onBack={()=>navTo('home')}
+        backLabel="← Home"
+        right={
+          <button className="icon-btn" onClick={()=>{setNewArgNome('');setSheetArg(true)}}>
+            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
         }
-      </div>
-      <div className="home-body">
-        {selArg.size>0&&<div className="sel-bar"><span>{selArg.size} selezionati</span><button className="btn-sm danger" onClick={()=>setDialog({icon:'🗑️',title:'Elimina argomenti?',msg:'Elimina gli argomenti selezionati?',confirmLabel:'Elimina',danger:true,onConfirm:()=>deleteArgomenti(selArg)})}>Elimina</button></div>}
+      />
+      <div style={{flex:1,overflowY:'auto',padding:'16px'}}>
+        {selArg.size>0&&<div className="sel-bar" style={{marginBottom:10}}>
+          <span>{selArg.size} selezionati</span>
+          <button className="btn-sm danger" onClick={()=>setDialog({icon:'🗑️',title:'Elimina argomenti?',msg:'Elimina gli argomenti selezionati?',confirmLabel:'Elimina',danger:true,onConfirm:()=>deleteArgomenti(selArg)})}>Elimina</button>
+        </div>}
         <div className="argomenti-list">
-          {argomenti.filter(a=>a.materia_id===curMateriaId).length===0&&<div className="empty"><span>📝</span><p>Nessun argomento. Creane uno!</p></div>}
+          {argomenti.filter(a=>a.materia_id===curMateriaId).length===0&&<div className="empty"><span>📝</span><p>Nessun argomento. Creane uno con il "+" in alto!</p></div>}
           {argomenti.filter(a=>a.materia_id===curMateriaId).map(a=>(
             <div key={a.id} className="argomento-row"
               onClick={()=>{if(selArg.size>0){const n=new Set(selArg);n.has(a.id)?n.delete(a.id):n.add(a.id);setSelArg(n);return}openArgomento(a)}}
@@ -1084,7 +1183,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
               onTouchStart={()=>{lpRef.current=setTimeout(()=>{const n=new Set(selArg);n.has(a.id)?n.delete(a.id):n.add(a.id);setSelArg(n)},600)}}
               onTouchEnd={()=>clearTimeout(lpRef.current)}
             >
-              {selArg.size>0&&<div className={`sel-check ${selArg.has(a.id)?'checked':''}`} style={{position:'static'}}>{selArg.has(a.id)&&<svg width="12" height="12" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>}</div>}
+              {selArg.size>0&&<div className={`sel-check${selArg.has(a.id)?' checked':''}`} style={{position:'static',flexShrink:0}}>{selArg.has(a.id)&&<svg width="12" height="12" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>}</div>}
               <div className="argomento-name">{a.nome}</div>
               <div className="row-actions">
                 <button className="row-del" onClick={e=>{e.stopPropagation();setDialog({icon:'🗑️',title:`Elimina "${a.nome}"?`,msg:'Fonti e storico verranno eliminati.',confirmLabel:'Elimina',danger:true,onConfirm:()=>deleteArgomenti(new Set([a.id]))})}}>
@@ -1101,11 +1200,12 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     {/* ARGOMENTO DETAIL */}
     {screen==='argomento'&&<div className="screen anim arg-screen">
 
-      {/* ── Header ── */}
-      <div className="arg-header">
-        <button className="back-btn" onClick={()=>navTo('home')}>← Home</button>
-        <div className="arg-header-center">
-          {editingArgTitle
+      {/* ── Header: back sinistra, titolo centrato, avatar destra ── */}
+      <AppHeader
+        onBack={()=>navTo('materia')}
+        backLabel="← Indietro"
+        titleNode={
+          editingArgTitle
             ?<input
                 className="arg-title-input"
                 value={argTitleVal}
@@ -1117,16 +1217,23 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
             :<span className="arg-header-title" onClick={()=>{setArgTitleVal(curArgomento?.nome||'');setEditingArgTitle(true)}}>
               {curArgomento?.nome}
             </span>
-          }
-        </div>
-        <div style={{width:80}}/>
-      </div>
+        }
+        right={
+          <button className="account-btn" style={{fontSize:'.75rem'}} onClick={()=>setScreen('profilo')}>
+            {utente?.nome?.[0]?.toUpperCase()||'?'}
+          </button>
+        }
+      />
 
-      {/* ── Tab content ── */}
-      <div className="arg-content">
+      {/* ── Tab content — desktop 3 colonne, mobile tab singolo ── */}
+      <div className="arg-content" style={{
+        '--col-fonti':`${colWidths[0]}%`,
+        '--col-chat':`${colWidths[1]}%`,
+        '--col-lab':`${colWidths[2]}%`,
+      }}>
 
         {/* ─ FONTI ─ */}
-        <div className={`arg-tab-panel${argTab==='fonti'?' active':''}`}>
+        <div className={`arg-tab-panel arg-col-fonti${argTab==='fonti'?' active':''}`} style={{borderRight:'1px solid var(--border)'}}>
         <div className="arg-col-header">Fonti</div>
         <div className="arg-body">
           {selFonti.size>0&&<div className="sel-bar">
@@ -1172,12 +1279,16 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
         </div>
         </div>
 
+        {/* Drag handle Fonti|Chat */}
+        <div className="arg-drag-handle" onMouseDown={e=>startDrag(0,e)}/>
+
         {/* ─ CHAT ─ */}
-        <div className={`arg-tab-panel${argTab==='chat'?' active':''}`}>
+        <div className={`arg-tab-panel arg-col-chat${argTab==='chat'?' active':''}`} style={{borderRight:'1px solid var(--border)'}}>
         <div className="arg-col-header" style={{justifyContent:'space-between'}}>
           <span>Chat</span>
-          <button className="chat-prompt-btn" style={{fontSize:'.72rem',padding:'4px 10px'}} onClick={()=>setSheetPromptMode(true)}>
-            {promptMode.mode==='learning'?'🎓':promptMode.mode==='custom'?'✍️':'🤖'} Prompt
+          <button className="chat-prompt-btn" onClick={()=>setSheetPromptMode(true)} title="Impostazioni risposta">
+            {promptMode.mode==='learning'?'🎓':promptMode.mode==='custom'?'✍️':'🤖'}
+            <span className="chat-prompt-len">{['B','M','L'][chatLength-1]}</span>
           </button>
         </div>
         <div className="arg-chat-container">
@@ -1206,48 +1317,45 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
         </div>
         </div>
 
+        {/* Drag handle Chat|Lab */}
+        <div className="arg-drag-handle" onMouseDown={e=>startDrag(1,e)}/>
+
         {/* ─ LAB ─ */}
-        <div className={`arg-tab-panel${argTab==='lab'?' active':''}`}>
+        <div className={`arg-tab-panel arg-col-lab${argTab==='lab'?' active':''}`}>
         <div className="arg-col-header">Lab</div>
         <div className="arg-body">
           {activeProvider?.provider==='deepseek'&&argFonti.some(f=>f.tipo==='file')&&<div style={{background:'rgba(248,113,113,.08)',border:'1.5px solid rgba(248,113,113,.2)',borderRadius:12,padding:'10px 14px',fontSize:'.82rem',color:'#F87171'}}>⚠️ DeepSeek non supporta file. Solo testo e link funzioneranno.</div>}
           {aiBlocked&&<div style={{background:'rgba(239,68,68,.08)',border:'1.5px solid rgba(239,68,68,.2)',borderRadius:12,padding:'10px 14px',fontSize:'.82rem',color:'#ef4444',fontWeight:600}}>🚫 Limite token raggiunto. Le funzioni AI sono disabilitate.</div>}
 
-          {/* Quiz button — click = pick type, ⚙️ = settings */}
+          {/* Quiz — click diretto = picker tipo, pennina = config */}
           <div className={`tool-card tool-card-wide${aiBlocked?' tool-card-disabled':''}`} onClick={()=>!aiBlocked&&setShowQuizPicker(true)}>
             <div className="tool-icon">❓</div>
-            <div>
+            <div style={{flex:1}}>
               <div className="tool-name">Quiz</div>
               <div className="tool-desc">Multipla · Aperta</div>
             </div>
-            <button className="tool-cfg-btn" style={{position:'static',marginLeft:'auto'}} onClick={e=>{e.stopPropagation();openToolCfg('quiz')}} title="Personalizza">⚙️</button>
+            <button className="tool-card-pen-btn" style={{position:'static',marginLeft:4}} onClick={e=>{e.stopPropagation();!aiBlocked&&openToolCfg('quiz')}} title="Personalizza">✏️</button>
           </div>
 
           <div className="tools-grid">
             {[
               {key:'riassunto',icon:'📝',name:'Riassunto',desc:'Sintesi strutturata'},
               {key:'flashcards',icon:'🃏',name:'Flash Cards',desc:'Carte flip 3D'},
-              {key:'mappa',icon:'🗺️',name:'Mappa concett.',desc:'Visuale interattiva'},
+              {key:'mappa',icon:'🗺️',name:'Mappa',desc:'Visuale interattiva'},
               {key:'punti',icon:'🎯',name:'Punti chiave',desc:'Concetti chiave'},
             ].map(t=>(
-              <div key={t.key} className={`tool-card${aiBlocked?' tool-card-disabled':''}`} onClick={()=>!aiBlocked&&runTool(t.key,outputCfg,true)}>
-                <button className="tool-cfg-btn" onClick={e=>{e.stopPropagation();openToolCfg(t.key)}} title="Personalizza">⚙️</button>
-                <div>
-                  <div className="tool-icon">{t.icon}</div>
-                  <div className="tool-name">{t.name}</div>
-                  <div className="tool-desc">{t.desc}</div>
-                </div>
+              <div key={t.key} className={`tool-card${aiBlocked?' tool-card-disabled':''}`} onClick={()=>!aiBlocked&&runTool(t.key,outputCfg,false)}>
+                <button className="tool-card-pen-btn" onClick={e=>{e.stopPropagation();!aiBlocked&&openToolCfg(t.key)}} title="Personalizza">✏️</button>
+                <div className="tool-icon">{t.icon}</div>
+                <div className="tool-name">{t.name}</div>
+                <div className="tool-desc">{t.desc}</div>
               </div>
             ))}
-            {curMateria?.dizionario&&(
-              <div className={`tool-card${aiBlocked?' tool-card-disabled':''}`} onClick={()=>!aiBlocked&&setLabInline(p=>p?.key==='dizionario'?null:{key:'dizionario',loading:false,data:null})}>
-                <div>
-                  <div className="tool-icon">📖</div>
-                  <div className="tool-name">Dizionario</div>
-                  <div className="tool-desc">Significati · Traduzioni</div>
-                </div>
-              </div>
-            )}
+            <div className={`tool-card${aiBlocked?' tool-card-disabled':''}`} onClick={()=>!aiBlocked&&setLabInline(p=>p?.key==='dizionario'?null:{key:'dizionario',loading:false,data:null})}>
+              <div className="tool-icon">📖</div>
+              <div className="tool-name">Dizionario</div>
+              <div className="tool-desc">{curMateria?.lingua||'Significati · Sinonimi'}</div>
+            </div>
           </div>
 
           {labInline?.key==='dizionario'&&(
@@ -1272,24 +1380,36 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
             </div>
           )}
 
-          <div className="lab-section-label" style={{marginTop:6}}>Generati</div>
+          {/* Output generati con stellina */}
+          <div className="lab-section-label" style={{marginTop:8}}>Generati</div>
           {selStorico.size>0&&<div className="sel-bar"><span>{selStorico.size} selezionati</span><button className="btn-sm danger" onClick={deleteStoricoSel}>Elimina</button></div>}
           {argStorico.length===0&&<div className="empty"><span>📋</span><p>Nessun output ancora. Genera qualcosa sopra!</p></div>}
           {argStorico.map(s=>{
             const isSel=selStorico.has(s.id)
+            const isStarred=s.stellato||false
+            const STLABEL={riassunto:'📝 Riassunto',mappa:'🗺️ Mappa',flashcards:'🃏 Flashcards',quiz:'❓ Quiz','quiz-aperta':'✍️ Quiz Aperta',punti:'🎯 Punti chiave',chat:'💬 Chat'}
+            const label=STLABEL[s.tipo]||s.tipo
+            const preview=s.tipo==='chat'
+              ?(s.contenuto.split('\n').find(l=>l.startsWith('Tu: '))?.slice(4)||'Conversazione')
+              :cleanText(s.contenuto).substring(0,70)
             return(
               <div key={s.id} className={'storico-row'+(isSel?' sel':'')}
-                onClick={()=>{const n=new Set(selStorico);n.has(s.id)?n.delete(s.id):n.add(s.id);setSelStorico(n)}}
+                onClick={()=>{if(selStorico.size>0){const n=new Set(selStorico);n.has(s.id)?n.delete(s.id):n.add(s.id);setSelStorico(n);return}openStorico(s)}}
                 onContextMenu={e=>{e.preventDefault();const n=new Set(selStorico);n.has(s.id)?n.delete(s.id):n.add(s.id);setSelStorico(n)}}
+                onTouchStart={()=>{lpRef.current=setTimeout(()=>{const n=new Set(selStorico);n.has(s.id)?n.delete(s.id):n.add(s.id);setSelStorico(n)},600)}}
+                onTouchEnd={()=>clearTimeout(lpRef.current)}
               >
                 {selStorico.size>0&&<div className={'sel-check'+(isSel?' checked':'')} style={{position:'static',flexShrink:0}}>{isSel&&<svg width="12" height="12" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>}</div>}
                 <div className="storico-info">
-                  <span className="storico-tipo">{s.tipo}</span>
-                  <div className="storico-preview">{cleanText(s.contenuto).substring(0,80)}…</div>
+                  <span className="storico-tipo">{label}</span>
+                  <div className="storico-preview">{preview}{preview.length>=70?'…':''}</div>
                   <div className="storico-data">{fmtDate(s.created_at)}</div>
                 </div>
-                <div style={{display:'flex',gap:6,flexShrink:0}}>
-                  <button className="btn-sm" onClick={e=>{e.stopPropagation();openStorico(s)}}>Apri</button>
+                <div style={{display:'flex',gap:4,flexShrink:0,alignItems:'center'}}>
+                  <button className={`storico-star-btn${isStarred?' starred':''}`}
+                    onClick={async e=>{e.stopPropagation();await supabase.from('storico').update({stellato:!isStarred}).eq('id',s.id);setStorico(p=>p.map(x=>x.id===s.id?{...x,stellato:!isStarred}:x))}}
+                    title={isStarred?'Rimuovi stella':'Aggiungi stella'}
+                  >★</button>
                   <button className="row-del" onClick={e=>{e.stopPropagation();deleteOneStorico(s.id)}}><svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></button>
                 </div>
               </div>
@@ -1326,54 +1446,144 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
 
     </div>}
     {/* PROFILO */}
-    {screen==='profilo'&&<div className="screen anim profilo-screen" style={{background:'var(--bg)'}}>
-      <div className="top-bar" style={{marginBottom:0}}>
-        <button className="back-btn" onClick={()=>navTo('home')}>← Home</button>
-        <span style={{fontWeight:700,fontSize:'1rem',color:'var(--ink)'}}>Profilo</span>
-        <div style={{width:70}}/>
-      </div>
-      <div className="profilo-top">
-        <div className="avatar">{utente?.nome?.[0]?.toUpperCase()||'👤'}</div>
-        <div className="profilo-name">{utente?.nome}</div>
-        <div className="profilo-email">{utente?.email}</div>
-      </div>
-      <div className="profilo-body">
-        {tokenUsage.tokenLimit>0&&<div className="profilo-token-card">
-          <div className="profilo-token-title">Utilizzo token AI</div>
+    {screen==='profilo'&&<div className="screen anim" style={{background:'var(--bg)'}}>
+      <AppHeader title="Profilo" onBack={()=>navTo('home')} backLabel="← Home"/>
+      <div className="profilo-scroll">
+
+        <div className="profilo-user-card">
+          <div className="avatar" style={{width:52,height:52,fontSize:'1.3rem',flexShrink:0}}>{utente?.nome?.[0]?.toUpperCase()||'?'}</div>
+          <div style={{flex:1,minWidth:0}}>
+            <div className="profilo-name" style={{marginBottom:2}}>{utente?.nome}</div>
+            <div className="profilo-email">{utente?.email}</div>
+          </div>
+          <div className={`profilo-plan-badge${utente?.ruolo==='owner'?' pro':''}`}>
+            {utente?.ruolo==='owner'?'Pro':'Gratis'}
+          </div>
+        </div>
+
+        {tokenUsage.tokenLimit>0&&<div className="settings-card">
+          <div className="settings-card-label">Utilizzo AI</div>
           <div className="profilo-token-row">
             <span>{tokenUsage.tokensUsed.toLocaleString('it')} / {tokenUsage.tokenLimit.toLocaleString('it')}</span>
             <span style={{color:aiBlocked?'#ef4444':'var(--muted)'}}>{Math.round(tokenUsage.tokensUsed/tokenUsage.tokenLimit*100)}%</span>
           </div>
-          <div className="profilo-token-bar-track">
+          <div className="profilo-token-bar-track" style={{marginTop:6}}>
             <div className="profilo-token-bar-fill" style={{width:`${Math.min(100,Math.round(tokenUsage.tokensUsed/tokenUsage.tokenLimit*100))}%`,background:aiBlocked?'#ef4444':'var(--accent)'}}/>
           </div>
           {tokenUsage.tokenResetDate&&<div style={{fontSize:'.72rem',color:'var(--muted)',marginTop:6}}>Reset il {tokenUsage.tokenResetDate}</div>}
-          {aiBlocked&&<div style={{marginTop:8,fontSize:'.8rem',color:'#ef4444',fontWeight:600}}>Limite raggiunto. AI disabilitata.</div>}
         </div>}
-        <div className="settings-section">
-          <div className="settings-row" onClick={()=>setScreen('impostazioni')}>
-            <span className="settings-row-label">⚙️ Impostazioni AI</span><span className="settings-row-icon">›</span>
+
+        <div className="settings-card">
+          <div className="settings-card-label">Impostazioni AI</div>
+          <div className="cfg-row">
+            <span className="cfg-label">Stile</span>
+            <div className="cfg-btns">
+              {[['default','Predefinita'],['learning','Apprendimento'],['custom','Custom']].map(([k,l])=>(
+                <button key={k} className={`cfg-btn${promptMode.mode===k?' active':''}`}
+                  onClick={()=>{const v={...promptMode,mode:k};setPromptMode(v);saveSettings({chatLength,promptMode:v,outputCfg})}}>{l}</button>
+              ))}
+            </div>
           </div>
-          <div className="settings-row" onClick={()=>{setOnb(true);setOnbStep(0)}}>
-            <span className="settings-row-label">📖 Guida FlashBacon</span><span className="settings-row-icon">›</span>
+          {promptMode.mode==='custom'&&(
+            <textarea className="prompt-custom-input" style={{marginTop:8}}
+              placeholder="Es: Rispondimi come un professore, usa esempi pratici…"
+              value={promptMode.customPrompt||''}
+              onChange={e=>{const v={...promptMode,customPrompt:e.target.value};setPromptMode(v);saveSettings({chatLength,promptMode:v,outputCfg})}}/>
+          )}
+          <div className="cfg-row" style={{marginTop:10}}>
+            <span className="cfg-label">Lunghezza</span>
+            <div className="cfg-btns">
+              {[['Breve',1],['Media',2],['Lunga',3]].map(([l,v])=>(
+                <button key={v} className={`cfg-btn${chatLength===v?' active':''}`}
+                  onClick={()=>{setChatLength(v);saveSettings({chatLength:v,promptMode,outputCfg})}}>{l}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="settings-section">
+          <div className="settings-row" onClick={()=>{setGuidaSearch('');setScreen('guida')}}>
+            <span className="settings-row-label">Guida FlashBacon</span><span className="settings-row-icon">›</span>
           </div>
           {utente?.is_admin&&<div className="settings-row" onClick={()=>{loadProviders();setScreen('admin')}}>
-            <span className="settings-row-label">🔑 Pannello Admin</span><span className="settings-row-icon">›</span>
+            <span className="settings-row-label">Pannello Admin</span><span className="settings-row-icon">›</span>
           </div>}
         </div>
-        <button className="btn-secondary" style={{marginTop:0}} onClick={doLogout}>Esci dall'account</button>
-        <button style={{background:'none',border:'none',color:'var(--muted)',fontSize:'.8rem',cursor:'pointer',textAlign:'center',padding:'8px'}} onClick={()=>setShowDanger(p=>!p)}>
-          {showDanger?'▲ Nascondi':'▼ Opzioni'}
-        </button>
-        {showDanger&&<button style={{background:'none',border:'1.5px solid rgba(220,38,38,.3)',borderRadius:16,padding:'12px',color:'#DC2626',fontSize:'.88rem',cursor:'pointer',fontFamily:"'DM Sans',sans-serif"}} onClick={confirmDeleteAccount}>
-          🗑️ Elimina account e tutti i dati
-        </button>}
+
+        <button className="btn-secondary" style={{marginTop:4}} onClick={doLogout}>Esci dall'account</button>
+
+        {deleteConfirmStep===0&&(
+          <button className="profilo-delete-btn" onClick={()=>setDeleteConfirmStep(1)}>Elimina account</button>
+        )}
+        {deleteConfirmStep>=1&&(
+          <div className="profilo-delete-confirm">
+            <p style={{fontSize:'.85rem',color:'var(--muted)',marginBottom:8}}>
+              Tutti i dati verranno eliminati definitivamente. Digita <strong style={{color:'#ef4444'}}>ELIMINA</strong> per confermare.
+            </p>
+            <input style={{width:'100%',padding:'10px 12px',background:'var(--surface-2)',border:'1.5px solid rgba(239,68,68,.4)',borderRadius:10,color:'var(--ink)',fontSize:'.9rem',outline:'none',marginBottom:8}}
+              value={deleteConfirmText} onChange={e=>setDeleteConfirmText(e.target.value)} placeholder="ELIMINA" autoFocus/>
+            <div style={{display:'flex',gap:8}}>
+              <button className="btn-secondary" style={{marginTop:0,flex:1}} onClick={()=>{setDeleteConfirmStep(0);setDeleteConfirmText('')}}>Annulla</button>
+              <button className="btn-sm danger" style={{flex:1,padding:'10px'}} disabled={deleteConfirmText!=='ELIMINA'}
+                onClick={async()=>{await supabase.from('profili').delete().eq('id',utente.id);await doLogout()}}>
+                Conferma
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>}
 
+    {/* GUIDA */}
+    {screen==='guida'&&(()=>{
+      const ITEMS=[
+        {a:'Chat',t:'Chat con AI',d:'Fai domande sulle fonti caricate. L\'AI risponde usando il contesto dei tuoi materiali in tempo reale.'},
+        {a:'Chat',t:'Impostazioni risposta',d:'Cambia stile (predefinita/apprendimento/custom) e lunghezza con il pulsante in alto nella Chat.'},
+        {a:'Chat',t:'Storico conversazioni',d:'Le chat vengono salvate nel Lab e possono essere riaperte per continuare.'},
+        {a:'Lab',t:'Quiz multipla scelta',d:'Genera domande con 4 opzioni. Configura difficoltà e numero tramite la pennina. Feedback immediato ad ogni risposta.'},
+        {a:'Lab',t:'Quiz risposta aperta',d:'Scrivi le risposte liberamente. L\'AI valuta ogni risposta e alla fine fornisce un report completo.'},
+        {a:'Lab',t:'Riassunto',d:'Genera riassunti strutturati con sezioni espandibili. Lunghezza configurabile.'},
+        {a:'Lab',t:'Flash Cards',d:'Carte fronte/retro per ripasso attivo. Tocca per girare, naviga con i tasti.'},
+        {a:'Lab',t:'Mappa Concettuale',d:'Albero visivo dei concetti. Tocca i nodi per espandere i sottoconcetti.'},
+        {a:'Lab',t:'Punti chiave',d:'Estrai i concetti più importanti dal materiale in modo rapido.'},
+        {a:'Lab',t:'Dizionario',d:'Cerca significati, sinonimi e traduzioni. Funziona in qualsiasi lingua.'},
+        {a:'Fonti',t:'Carica fonti',d:'Aggiungi PDF, immagini, audio, link web, YouTube o testo. L\'AI le usa come contesto per tutte le funzioni.'},
+        {a:'Fonti',t:'Upload AI',d:'Carica materiali e l\'AI organizza automaticamente materie e argomenti. Modifica prima di salvare.'},
+        {a:'Fonti',t:'Estrazione automatica',d:'Il testo viene estratto da PDF e immagini (OCR) e salvato come contesto per le risposte AI.'},
+        {a:'Ripasso',t:'Ripasso pianificato',d:'Crea sessioni automatiche con notifiche. Scegli materia, argomento, frequenza e orario.'},
+        {a:'Ripasso',t:'Quiz ripasso',d:'L\'AI genera un quiz diverso ogni volta. Tipo multipla o flashcard.'},
+        {a:'Ripasso',t:'Notifiche',d:'Ricevi notifiche push all\'orario impostato. Abilita i permessi quando richiesto.'},
+        {a:'Profilo',t:'Impostazioni AI globali',d:'Stile e lunghezza risposta applicati a tutte le materie. Modificabili dal Profilo.'},
+        {a:'Profilo',t:'Materie e argomenti',d:'Organizza i materiali in materie (es. Matematica) e argomenti (es. Derivate).'},
+      ]
+      const q=guidaSearch.toLowerCase()
+      const filtered=ITEMS.filter(i=>!q||i.t.toLowerCase().includes(q)||i.d.toLowerCase().includes(q)||i.a.toLowerCase().includes(q))
+      const areas=[...new Set(filtered.map(i=>i.a))]
+      return(
+        <div className="screen anim" style={{background:'var(--bg)'}}>
+          <AppHeader title="Guida" onBack={()=>setScreen('profilo')} backLabel="← Profilo"/>
+          <div className="guida-body">
+            <input className="guida-search" placeholder="Cerca funzionalità…" value={guidaSearch} onChange={e=>setGuidaSearch(e.target.value)}/>
+            {areas.length===0&&<div className="empty"><span>?</span><p>Nessun risultato per "{guidaSearch}"</p></div>}
+            {areas.map(area=>(
+              <div key={area} className="guida-section">
+                <div className="guida-area-label">{area}</div>
+                {filtered.filter(i=>i.a===area).map((item,k)=>(
+                  <div key={k} className="guida-item">
+                    <div className="guida-item-title">{item.t}</div>
+                    <div className="guida-item-desc">{item.d}</div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      )
+    })()}
+
     {/* IMPOSTAZIONI AI */}
     {screen==='impostazioni'&&<div className="screen anim" style={{background:'var(--bg)'}}>
-      <div className="top-bar"><button className="back-btn" onClick={()=>setScreen('profilo')}>← Profilo</button><span style={{fontWeight:700,fontSize:'1rem'}}>Impostazioni AI</span><div style={{width:70}}/></div>
+      <AppHeader title="Impostazioni AI" onBack={()=>setScreen('profilo')} backLabel="← Profilo"/>
       <div style={{padding:20,display:'flex',flexDirection:'column',gap:14,maxWidth:480,margin:'0 auto',width:'100%'}}>
         <div style={{background:'var(--surface)',borderRadius:16,padding:16,border:'1px solid var(--border)'}}>
           <div style={{fontSize:'.75rem',fontWeight:700,color:'var(--muted)',textTransform:'uppercase',letterSpacing:'.5px',marginBottom:10}}>Lunghezza risposta</div>
@@ -1404,10 +1614,10 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     </div>}
 
     {/* ADMIN */}
-    {screen==='admin'&&<div className="screen anim" style={{background:'var(--gray)'}}>
-      <div className="admin-top">
-        <div className="top-bar" style={{background:'transparent',padding:'12px 16px 0'}}><button className="back-btn" onClick={()=>setScreen('profilo')}>← Profilo</button></div>
-        <h1>Pannello Admin</h1><p>Gestisci provider AI</p>
+    {screen==='admin'&&<div className="screen anim" style={{background:'var(--bg)'}}>
+      <AppHeader title="Pannello Admin" onBack={()=>setScreen('profilo')} backLabel="← Profilo"/>
+      <div className="admin-top" style={{borderBottom:'none',paddingTop:8}}>
+        <p style={{padding:'0 20px',color:'var(--muted)',fontSize:'.85rem'}}>Gestisci provider AI</p>
       </div>
       <div className="admin-body">
         {activeProvider&&<div className="banner-active">⚡ Attivo: <strong>{activeProvider.nome_display}</strong> — {activeProvider.modello}</div>}
@@ -1440,30 +1650,30 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
 
     {/* RIPASSO V2 */}
     {screen==='ripasso'&&<div className="screen anim ripasso-screen">
-      <div className="top-bar">
-        <button className="back-btn" onClick={()=>navTo('home')}>← Home</button>
-        <span style={{fontWeight:700,fontSize:'1rem',color:'var(--ink)'}}>Ripasso</span>
-        <div style={{width:70}}/>
-      </div>
+      <AppHeader title="Ripasso" onBack={()=>navTo('home')} backLabel="← Home"/>
 
       <div className="ripasso-layout">
 
         {/* Colonna sinistra: lista ripassi */}
         <div className={`ripasso-list-panel${rShowForm?' rp-hidden-sm':''}`}>
           {ripassi.length===0
-            ?<div className="empty"><span>📅</span><p>Nessun ripasso pianificato.</p></div>
+            ?<div className="empty"><span style={{fontSize:'2rem'}}>—</span><p>Nessun ripasso pianificato.</p></div>
             :<div className="ripasso-items">
               {ripassi.map(r=>{
                 const mat=materie.find(m=>m.id===r.materia_id)
                 const hasQuiz=!!ripassiQuiz[r.id]
                 const isGenerating=ripassiGeneratingId===r.id
+                const FDOW={lun:'Ogni lunedì',mar:'Ogni martedì',mer:'Ogni mercoledì',gio:'Ogni giovedì',ven:'Ogni venerdì',sab:'Ogni sabato',dom:'Ogni domenica',giornaliero:'Ogni giorno',settimanale:'Settimanale'}
+                const freqLbl=FDOW[r.frequenza]||r.frequenza
+                const tipoLbl=r.quiz_modalita==='flashcard'?'Flashcard':'Multipla'
                 return(
                   <div key={r.id} className={`ripasso-item2${rEditId===r.id&&rShowForm?' rp-active':''}`}>
                     <div className="ripasso-item2-main" onClick={()=>openRipassoQuizFromTable(r)}>
                       <div className="ripasso-item2-nome">{r.nome||mat?.nome||'Ripasso'}</div>
-                      <div className="ripasso-meta">{r.frequenza} · {r.orario} · {r.quiz_num} dom. · {r.quiz_modalita}</div>
-                      {isGenerating&&<div className="ripasso-item2-badge rp-gen"><Spinner/> Generando quiz…</div>}
-                      {!isGenerating&&hasQuiz&&<div className="ripasso-item2-badge">▶ Quiz pronto</div>}
+                      <div className="ripasso-meta">{freqLbl} · {r.orario} · {r.quiz_num} dom. · {tipoLbl}</div>
+                      {isGenerating&&<div className="ripasso-item2-badge rp-gen"><Spinner/> Generando…</div>}
+                      {!isGenerating&&hasQuiz&&<div className="ripasso-item2-badge rp-ready">Pronto</div>}
+                      {!isGenerating&&!hasQuiz&&<div className="ripasso-item2-badge rp-wait">In attesa</div>}
                     </div>
                     <div className="ripasso-item2-btns">
                       <button onClick={e=>{e.stopPropagation();editRipasso(r)}} title="Modifica parametri">⚙</button>
@@ -1474,7 +1684,9 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
               })}
             </div>
           }
-          <button className="ripasso-new-btn" onClick={openNewRipassoForm}>+ Nuovo ripasso</button>
+          <button className="fab-diamond" onClick={openNewRipassoForm} title="Nuovo ripasso">
+            <span className="fab-diamond-inner">+</span>
+          </button>
         </div>
 
         {/* Colonna destra: form creazione / modifica */}
@@ -1515,29 +1727,28 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
                 </div>
               )}
 
-              <div className="ripasso-form-row">
-                <div className="field">
-                  <label>Frequenza</label>
-                  <select className="select-field" value={rFreq} onChange={e=>setRFreq(e.target.value)}>
-                    <option value="giornaliero">Giornaliero</option>
-                    <option value="settimanale">Settimanale</option>
-                    <option value="personalizzato">Personalizzato</option>
-                  </select>
+              <div className="field">
+                <label>Frequenza</label>
+                <div className="rp-chips" style={{flexWrap:'wrap'}}>
+                  <button className={`rp-chip${rFreq==='giornaliero'?' sel':''}`} onClick={()=>setRFreq('giornaliero')}>Ogni giorno</button>
+                  {[['lun','Lun'],['mar','Mar'],['mer','Mer'],['gio','Gio'],['ven','Ven'],['sab','Sab'],['dom','Dom']].map(([v,l])=>(
+                    <button key={v} className={`rp-chip${rFreq===v?' sel':''}`} onClick={()=>setRFreq(v)}>{l}</button>
+                  ))}
                 </div>
-                <div className="field">
-                  <label>Orario</label>
-                  <input type="time" className="select-field" value={rOrario} onChange={e=>setROrario(e.target.value)}/>
-                </div>
+              </div>
+
+              <div className="field">
+                <label>Orario notifica</label>
+                <input type="time" className="select-field" style={{maxWidth:140}} value={rOrario} onChange={e=>setROrario(e.target.value)}/>
               </div>
 
               <div className="ripasso-form-row">
                 <div className="field">
-                  <label>Tipo quiz</label>
-                  <select className="select-field" value={rQMode} onChange={e=>setRQMode(e.target.value)}>
-                    <option value="multipla">Risposta multipla</option>
-                    <option value="aperta">Risposta aperta</option>
-                    <option value="misto">Misto</option>
-                  </select>
+                  <label>Tipo</label>
+                  <div className="cfg-btns">
+                    <button className={`cfg-btn${rQMode==='multipla'?' active':''}`} onClick={()=>setRQMode('multipla')}>Multipla</button>
+                    <button className={`cfg-btn${rQMode==='flashcard'?' active':''}`} onClick={()=>setRQMode('flashcard')}>Flashcard</button>
+                  </div>
                 </div>
                 <div className="field">
                   <label>Domande: <strong>{rQNum}</strong></label>
@@ -1572,7 +1783,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     {/* FULLPAGE MODAL */}
     {fullpage&&<div className="fullpage">
       <div className="fp-header">
-        <button className="back-btn" style={{background:'var(--gray)',color:'var(--ink)'}} onClick={()=>{setFullpage(null);setFpEditMode(false)}}>← Indietro</button>
+        <button className="back-btn" onClick={()=>{setFullpage(null);setFpEditMode(false)}}>← Indietro</button>
         <div className="fp-title">{fullpage.title}</div>
         {fullpage.type!=='loading'&&<button className="fp-edit-btn" onClick={()=>setFpEditMode(p=>!p)}>✏️ {fpEditMode?'Chiudi':'Modifica'}</button>}
       </div>
@@ -1797,11 +2008,11 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     {showQuizPicker&&<div className="sheet-ov" onClick={()=>setShowQuizPicker(false)}><div className="sheet" onClick={e=>e.stopPropagation()}>
       <h3>❓ Tipo di Quiz</h3>
       <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
-        <div className="quiz-type-opt" onClick={()=>{setShowQuizPicker(false);runTool('quiz',outputCfg,true)}}>
+        <div className="quiz-type-opt" onClick={()=>{setShowQuizPicker(false);runTool('quiz',outputCfg)}}>
           <div className="quiz-type-icon">🔤</div>
           <div><div className="quiz-type-name">Risposta multipla</div><div className="quiz-type-desc">4 opzioni, una sola corretta</div></div>
         </div>
-        <div className="quiz-type-opt" onClick={()=>{setShowQuizPicker(false);runTool('quiz-aperta',outputCfg,true)}}>
+        <div className="quiz-type-opt" onClick={()=>{setShowQuizPicker(false);runTool('quiz-aperta',outputCfg)}}>
           <div className="quiz-type-icon">✍️</div>
           <div><div className="quiz-type-name">Risposta aperta</div><div className="quiz-type-desc">Scrivi la risposta con testo libero</div></div>
         </div>
@@ -1827,6 +2038,8 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       mode={promptMode.mode}
       customPrompt={promptMode.customPrompt}
       onChange={v=>setPromptMode(v)}
+      chatLength={chatLength}
+      onLengthChange={v=>{setChatLength(v);saveSettings({chatLength:v,promptMode,outputCfg})}}
       onClose={()=>setSheetPromptMode(false)}
     />}
 

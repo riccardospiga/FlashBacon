@@ -4,6 +4,7 @@ import { compressImg, getExt, isImgExt, toast } from '../utils/helpers.js'
 
 const AUDIO_EXTS = ['mp3', 'm4a', 'wav', 'aac', 'ogg', 'flac', 'weba']
 const VISION_PROVIDERS = ['anthropic', 'openai', 'google', 'mistral']
+const SUBJ_EMOJIS = ['📚','🔬','🧮','🌍','🎨','📖','🧬','⚗️','🏛️','🎵','🖥️','🌿','📐','🔭','🧠','💡','⚙️','🌊','🏆','📊','🔑','✏️','🗺️','🎯','🏗️','🧪']
 
 export const MATERIE_BASE = [
   "Matematica","Fisica","Chimica","Biologia","Storia","Geografia",
@@ -190,6 +191,7 @@ export default function UploadAIModal({
   const [analyzeStatus, setAnalyzeStatus]   = useState('')
   const [originalProposal, setOriginalProposal] = useState(null)
   const [proposalDiverged, setProposalDiverged] = useState(false)
+  const [showEmojiFor, setShowEmojiFor] = useState(null)
   const fileRef = useRef()
 
   /* ── Add items ── */
@@ -339,7 +341,9 @@ export default function UploadAIModal({
           }
         }
 
-        sources.push({ name: item.name, content: content.slice(0, 3000) })
+        const extracted = content.slice(0, 3000)
+        item.estratto = extracted
+        sources.push({ name: item.name, content: extracted })
       }
 
       if (anyAudioError) toast('⚠️ Alcune trascrizioni audio non erano disponibili. Procedo comunque.')
@@ -353,7 +357,7 @@ export default function UploadAIModal({
       ).join('\n')
 
       const systemContext = `Sei un organizzatore accademico esperto per FlashBacon, un'app di studio.
-Il tuo UNICO compito è classificare i materiali didattici forniti e proporre una struttura materie/argomenti.
+Il tuo compito è classificare i materiali didattici forniti, proporre una struttura materie/argomenti E generare un mini-riassunto tecnico per ogni fonte.
 
 MATERIE STANDARD (usa queste quando il contenuto corrisponde):
 ${MATERIE_BASE.join(', ')}
@@ -368,6 +372,8 @@ REGOLE:
 - Preferisci aggiungere a materia esistente se il contenuto corrisponde
 - Lingua: usa la stessa lingua del materiale sorgente
 - LIMITE ASSOLUTO: MASSIMO 3 ARGOMENTI PER MATERIA
+- emoji: scegli l'emoji più appropriata al contenuto (non sempre 📚)
+- riassunti_file: per ogni fonte (index 0-based) scrivi 1-2 frasi tecniche che descrivono il contenuto reale
 
 OUTPUT: Rispondi SOLO con JSON valido. Nessun markdown, nessuna spiegazione.
 {
@@ -376,6 +382,9 @@ OUTPUT: Rispondi SOLO con JSON valido. Nessun markdown, nessuna spiegazione.
   ],
   "aggiunte_esistenti": [
     { "materia_id": "...", "materia_nome": "...", "argomenti": ["..."], "item_indices": [1] }
+  ],
+  "riassunti_file": [
+    { "index": 0, "riassunto": "Breve descrizione tecnica del contenuto del file." }
   ]
 }`
 
@@ -410,6 +419,13 @@ Rispondi SOLO con il JSON richiesto.`
       if (!match) throw new Error('Risposta AI non JSON')
       const parsed = JSON.parse(match[0])
 
+      // Attach AI-generated mini-riassunti to workItems
+      for (const r of (parsed.riassunti_file || [])) {
+        if (typeof r.index === 'number' && workItems[r.index]) {
+          workItems[r.index].mini_riassunto = r.riassunto || ''
+        }
+      }
+
       const newProposal = {
         nuove: (parsed.nuove_materie || []).map((m, i) => ({ ...m, _id: 'new-' + i })),
         esistenti: parsed.aggiunte_esistenti || [],
@@ -419,6 +435,7 @@ Rispondi SOLO con il JSON richiesto.`
       setProposal(newProposal)
       setOriginalProposal(JSON.parse(JSON.stringify(newProposal)))
       setProposalDiverged(false)
+      setShowEmojiFor(null)
       setStep('confirm')
 
     } catch (e) {
@@ -520,7 +537,9 @@ Rispondi SOLO con il JSON richiesto.`
       const { data: urlData } = supabase.storage.from('fonti').getPublicUrl(path)
       const { error: ie } = await supabase.from('fonti').insert({
         utente_email: utente.email, materia_id: materiaId, argomento_id: argomentoId,
-        nome: item.name, url: urlData.publicUrl, tipo: item.type === 'audio' ? 'audio' : 'file',
+        nome: item.name, url: urlData.publicUrl,
+        tipo: item.type === 'audio' ? 'audio' : 'file',
+        testo: item.estratto || null,
       })
       if (ie) console.error('[uploadItem] fonti insert error:', ie.message)
       else console.log('[uploadItem] ✓ saved', item.name)
@@ -537,6 +556,7 @@ Rispondi SOLO con il JSON richiesto.`
       const { error } = await supabase.from('fonti').insert({
         utente_email: utente.email, materia_id: materiaId, argomento_id: argomentoId,
         nome: item.name, url: item.url, tipo: 'url',
+        testo: item.estratto || null,
       })
       if (error) console.error('[uploadItem] url insert:', error.message)
 
@@ -544,6 +564,7 @@ Rispondi SOLO con il JSON richiesto.`
       const { error } = await supabase.from('fonti').insert({
         utente_email: utente.email, materia_id: materiaId, argomento_id: argomentoId,
         nome: item.name, url: item.url, tipo: 'youtube',
+        testo: item.estratto || null,
       })
       if (error) console.error('[uploadItem] youtube insert:', error.message)
     }
@@ -552,6 +573,10 @@ Rispondi SOLO con il JSON richiesto.`
   /* ── Proposal edit helpers ── */
   function updateNuovaNome(i, nome) {
     setProposal(p => ({ ...p, nuove: p.nuove.map((m, j) => j === i ? { ...m, nome } : m) }))
+  }
+  function updateNuovaEmoji(i, emoji) {
+    setProposal(p => ({ ...p, nuove: p.nuove.map((m, j) => j === i ? { ...m, emoji } : m) }))
+    setProposalDiverged(true)
   }
   function updateNuovaArg(i, ai, val) {
     setProposal(p => ({ ...p, nuove: p.nuove.map((m, j) => j !== i ? m : { ...m, argomenti: m.argomenti.map((a, k) => k === ai ? val : a) }) }))
@@ -765,7 +790,20 @@ Rispondi SOLO con il JSON richiesto.`
               {proposal.nuove.map((mat, i) => (
                 <div key={mat._id} className="up-proposal-card">
                   <div className="up-proposal-header">
-                    <span className="up-prop-emoji">{mat.emoji}</span>
+                    <div className="up-emoji-picker-wrap">
+                      <button className="up-prop-emoji-btn" onClick={() => setShowEmojiFor(showEmojiFor === i ? null : i)} title="Cambia emoji">
+                        {mat.emoji}
+                      </button>
+                      {showEmojiFor === i && (
+                        <div className="up-emoji-grid">
+                          {SUBJ_EMOJIS.map(e => (
+                            <button key={e} className="up-emoji-opt" onClick={() => { updateNuovaEmoji(i, e); setShowEmojiFor(null) }}>
+                              {e}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     <input className="up-prop-name-input" value={mat.nome} onChange={e => updateNuovaNome(i, e.target.value)}/>
                     <button className="up-card-remove" onClick={() => removeNuova(i)} title="Rimuovi materia">✕</button>
                   </div>
@@ -786,6 +824,15 @@ Rispondi SOLO con il JSON richiesto.`
                           {items[idx].type === 'text' ? '✏️' : items[idx].type === 'url' ? '🔗' : '📄'} {items[idx].name}
                         </span>
                       ))}
+                    </div>
+                  )}
+                  {mat.item_indices?.some(idx => items[idx]?.mini_riassunto) && (
+                    <div className="up-file-summaries">
+                      {mat.item_indices.map(idx => items[idx]?.mini_riassunto ? (
+                        <div key={idx} className="up-file-summary">
+                          <span className="up-file-summary-name">{items[idx].name}:</span> {items[idx].mini_riassunto}
+                        </div>
+                      ) : null)}
                     </div>
                   )}
                   {proposal.nuove.length > 1 && (

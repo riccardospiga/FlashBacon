@@ -18,7 +18,9 @@
       "Bash(python -c \"import sys,json; lines=sys.stdin.read\\(\\).strip\\(\\).split\\('\\\\n'\\); [print\\(json.loads\\(l\\).get\\('content',''\\)[:2000] if isinstance\\(json.loads\\(l\\).get\\('content',''\\),str\\) else str\\(json.loads\\(l\\).get\\('content',''\\)\\)[:2000]\\) for l in lines[-5:] if l]\")",
       "Bash(python:*)",
       "Bash(python3:*)",
-      "Bash(ls D:/FlashBacon/.env*)"
+      "Bash(ls D:/FlashBacon/.env*)",
+      "Bash(wc:*)",
+      "Bash(curl -s http://localhost:5174)"
     ]
   }
 }

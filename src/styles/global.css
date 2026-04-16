@@ -1,11 +1,11 @@
 /* ═══ VARIABLES ═══ */
 :root {
-  /* Brand — red/orange palette */
-  --primary:     #C0281C;
-  --primary-dk:  #A01818;
-  --primary-lt:  #E04040;
-  --accent:      #F47C20;
-  --accent-lt:   #F9A060;
+  /* Brand — dark red/orange palette */
+  --primary:     #8B1A12;
+  --primary-dk:  #6B0A0A;
+  --primary-lt:  #C0281C;
+  --accent:      #D4692A;
+  --accent-lt:   #E88C50;
   --white:       #FFFFFF;
 
   /* Dark surfaces */
@@ -13,6 +13,7 @@
   --surface:     #252535;
   --surface-2:   #2E2E45;
   --surface-3:   #383850;
+  --elevated:    #2E2E45;
 
   /* Text */
   --ink:         #FFFFFF;
@@ -28,9 +29,9 @@
   --gray2:       rgba(255,255,255,.1);
   --dark-bg:     #1C1C2E;
 
-  /* Gradients */
-  --gradient:    linear-gradient(135deg, #C0281C 0%, #F47C20 100%);
-  --gradient-dk: linear-gradient(135deg, #A01818 0%, #D06A18 100%);
+  /* Gradients — only for buttons/accents, never for headers */
+  --gradient:    linear-gradient(135deg, #8B1A12 0%, #D4692A 100%);
+  --gradient-dk: linear-gradient(135deg, #6B0A0A 0%, #B05A20 100%);
 }
 
 /* ═══ RESET ═══ */
@@ -58,6 +59,14 @@ body {
   display: flex;
   flex-direction: column;
   overflow-x: hidden;
+}
+
+/* Expand root for screens that need full width */
+body:has(.arg-screen) #root,
+body:has(.arg-screen) .app-shell,
+body:has(.materia-screen) #root,
+body:has(.materia-screen) .app-shell {
+  max-width: 100%;
 }
 
 .app-shell {
@@ -812,6 +821,11 @@ body {
   color: var(--ink); transition: border-color .2s;
 }
 .chat-prompt-btn:hover { border-color: var(--primary-lt); }
+.chat-prompt-len {
+  background: rgba(108,99,255,.18); color: var(--primary-lt);
+  border-radius: 5px; padding: 1px 5px; font-size: .7rem; font-weight: 700;
+  letter-spacing: .03em;
+}
 .chat-messages {
   flex: 1; display: flex; flex-direction: column; gap: 10px;
   overflow-y: auto; padding-bottom: 8px; min-height: 180px; max-height: 52vh;
@@ -1132,6 +1146,70 @@ body {
 .admin-form h3  { font-family: 'Syne', sans-serif; font-weight: 800; font-size: 1rem; margin-bottom: 16px; color: var(--ink); }
 .banner-active  { background: rgba(6,182,212,.08); border: 1.5px solid rgba(6,182,212,.3); border-radius: 14px; padding: 12px 16px; font-size: .88rem; font-weight: 500; color: var(--ink); }
 .banner-active strong { color: var(--accent); }
+
+/* ═══ PROFILO REDESIGN ═══ */
+.profilo-scroll {
+  flex: 1; overflow-y: auto; padding: 16px 20px 40px;
+  display: flex; flex-direction: column; gap: 12px;
+  max-width: 520px; margin: 0 auto; width: 100%;
+}
+.profilo-user-card {
+  display: flex; align-items: center; gap: 14px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 18px; padding: 16px 18px;
+}
+.profilo-plan-badge {
+  background: var(--surface-2); color: var(--muted);
+  font-size: .72rem; font-weight: 700; padding: 4px 10px;
+  border-radius: 99px; flex-shrink: 0; border: 1px solid var(--border);
+}
+.profilo-plan-badge.pro {
+  background: rgba(212,105,42,.15); color: var(--accent2);
+  border-color: rgba(212,105,42,.3);
+}
+.settings-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; padding: 16px;
+}
+.settings-card-label {
+  font-size: .72rem; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .5px; margin-bottom: 12px;
+}
+.profilo-token-row { display: flex; justify-content: space-between; font-size: .85rem; }
+.profilo-delete-btn {
+  background: none; border: 1.5px solid rgba(239,68,68,.25);
+  border-radius: 14px; padding: 12px; width: 100%;
+  color: rgba(239,68,68,.7); font-size: .85rem; font-weight: 600;
+  cursor: pointer; transition: all .15s; font-family: 'DM Sans', sans-serif;
+  margin-top: 4px;
+}
+.profilo-delete-btn:hover { border-color: #ef4444; color: #ef4444; }
+.profilo-delete-confirm {
+  background: rgba(239,68,68,.06); border: 1.5px solid rgba(239,68,68,.2);
+  border-radius: 14px; padding: 14px; margin-top: 4px;
+}
+
+/* ═══ GUIDA ═══ */
+.guida-body { flex: 1; overflow-y: auto; padding: 16px 20px 40px; max-width: 600px; margin: 0 auto; width: 100%; }
+.guida-search {
+  width: 100%; padding: 11px 14px; border-radius: 12px;
+  background: var(--surface); border: 1.5px solid var(--border-md);
+  color: var(--ink); font-size: .9rem; outline: none;
+  font-family: 'DM Sans', sans-serif; margin-bottom: 16px;
+  transition: border-color .2s;
+}
+.guida-search:focus { border-color: var(--primary-lt); }
+.guida-section { margin-bottom: 20px; }
+.guida-area-label {
+  font-size: .7rem; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .8px; margin-bottom: 8px;
+}
+.guida-item {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 12px; padding: 13px 15px; margin-bottom: 6px;
+}
+.guida-item-title { font-weight: 700; font-size: .9rem; color: var(--ink); margin-bottom: 4px; }
+.guida-item-desc  { font-size: .82rem; color: var(--muted); line-height: 1.5; }
 
 /* ═══ RIPASSO ═══ */
 .ripasso-body { flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; background: var(--bg); }
@@ -1470,6 +1548,42 @@ body {
   transition: background .15s; font-family: 'DM Sans', sans-serif;
 }
 .up-merge-option:hover { background: rgba(108,99,255,.18); }
+
+/* Emoji picker */
+.up-emoji-picker-wrap { position: relative; flex-shrink: 0; }
+.up-prop-emoji-btn {
+  background: none; border: 1.5px solid var(--border-md);
+  border-radius: 8px; padding: 2px 6px;
+  font-size: 1.4rem; cursor: pointer; transition: border-color .15s;
+  line-height: 1; display: flex; align-items: center; justify-content: center;
+}
+.up-prop-emoji-btn:hover { border-color: var(--primary-lt); }
+.up-emoji-grid {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 20;
+  background: var(--surface-3); border: 1px solid var(--border-str);
+  border-radius: 12px; padding: 8px;
+  display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px;
+  box-shadow: 0 4px 20px rgba(0,0,0,.45); animation: fadeIn .15s ease;
+  width: 210px;
+}
+.up-emoji-opt {
+  background: none; border: none; border-radius: 6px;
+  font-size: 1.15rem; cursor: pointer; padding: 5px;
+  transition: background .12s; line-height: 1; text-align: center;
+}
+.up-emoji-opt:hover { background: rgba(108,99,255,.18); }
+
+/* Mini-riassunti per file */
+.up-file-summaries {
+  display: flex; flex-direction: column; gap: 5px;
+  border-top: 1px solid var(--border-md); padding-top: 8px;
+}
+.up-file-summary {
+  font-size: .77rem; color: var(--muted); line-height: 1.55;
+}
+.up-file-summary-name {
+  font-weight: 600; color: rgba(255,255,255,.55); margin-right: 4px;
+}
 
 /* Convert esistente → nuova */
 .up-convert-btn {
@@ -1850,7 +1964,9 @@ body {
   font-size: .72rem; margin-top: 4px;
   color: var(--accent); font-weight: 600;
 }
-.ripasso-item2-badge.rp-gen { color: var(--muted); }
+.ripasso-item2-badge.rp-gen   { color: var(--muted); }
+.ripasso-item2-badge.rp-ready { color: #34d399; }
+.ripasso-item2-badge.rp-wait  { color: var(--muted); }
 .ripasso-item2-btns {
   display: flex; gap: 6px; flex-shrink: 0;
 }
@@ -1944,43 +2060,21 @@ body {
 
 /* ═══ DESKTOP 3-COLUMN ARGOMENTO ═══ */
 @media (min-width: 769px) {
-  /* Expand root + shell for argomento screen */
-  body:has(.arg-screen) #root,
-  body:has(.arg-screen) .app-shell {
-    max-width: 100%;
-  }
-
   .arg-content {
     flex-direction: row;
   }
 
-  /* All 3 panels visible side by side */
+  /* All 3 panels visible side by side, widths driven by JS via --col-* vars */
   .arg-tab-panel {
     display: flex !important;
-    flex: 1;
-    border-right: 1px solid var(--border);
-    min-width: 0;
+    border-right: none;
+    min-width: 180px;
+    overflow: hidden;
   }
   .arg-tab-panel:last-child { border-right: none; }
 
-  /* Column label strip */
-  .arg-tab-panel > .arg-body,
-  .arg-tab-panel > .arg-chat-container {
-    border-top: none;
-  }
-
   /* Hide bottom nav on desktop */
   .arg-bottom-nav { display: none; }
-
-  /* Subtle column header via pseudo — accent strip */
-  .arg-tab-panel:nth-child(1)::before,
-  .arg-tab-panel:nth-child(2)::before,
-  .arg-tab-panel:nth-child(3)::before {
-    content: '';
-    display: block; height: 2px; flex-shrink: 0;
-    background: var(--accent);
-    opacity: .4;
-  }
 
   .arg-col-header { display: flex !important; }
 }
@@ -2070,4 +2164,176 @@ body {
 .lab-diz-lang {
   font-size: .65rem; font-weight: 700; color: var(--accent-lt);
   text-transform: uppercase; letter-spacing: .5px; min-width: 26px;
+}
+
+/* ═══ APP HEADER — standard uniforme ═══ */
+.app-header {
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center;
+  padding: 10px 14px;
+  gap: 10px;
+  position: sticky; top: 0; z-index: 100; flex-shrink: 0;
+  min-height: 56px;
+}
+.app-header-left  { display: flex; align-items: center; flex-shrink: 0; min-width: 70px; }
+.app-header-title {
+  flex: 1; text-align: center;
+  font-weight: 700; font-size: 1rem; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  padding: 0 8px;
+}
+.app-header-right {
+  display: flex; align-items: center; justify-content: flex-end;
+  flex-shrink: 0; min-width: 70px; gap: 6px;
+}
+
+/* ═══ DRAG HANDLE (3-col argomento) ═══ */
+.arg-drag-handle {
+  width: 5px; flex-shrink: 0; background: var(--border);
+  cursor: col-resize; position: relative; z-index: 10;
+  transition: background .15s;
+  display: none;
+}
+.arg-drag-handle:hover,
+.arg-drag-handle.dragging { background: var(--accent); }
+@media (min-width: 769px) {
+  .arg-drag-handle { display: block; }
+}
+
+/* ═══ HOME — FAB CENTRALE ═══ */
+.home-fab-row {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 12px; padding: 16px 16px 0;
+  flex-shrink: 0;
+}
+.home-fab-upload {
+  width: 62px; height: 62px; border-radius: 50%;
+  background: var(--gradient); border: none; color: white;
+  font-size: 1.8rem; display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 6px 24px rgba(139,26,18,.45), 0 0 0 6px rgba(139,26,18,.12);
+  transition: transform .2s, box-shadow .2s;
+}
+.home-fab-upload:hover {
+  transform: scale(1.08);
+  box-shadow: 0 10px 36px rgba(139,26,18,.55), 0 0 0 10px rgba(139,26,18,.14);
+}
+.home-fab-upload:active { transform: scale(.93); }
+.home-fab-label { font-size: .78rem; color: var(--muted); font-weight: 500; }
+
+/* Nuova materia — button accanto al FAB */
+.home-fab-manual {
+  display: flex; align-items: center; gap: 8px;
+  padding: 12px 18px;
+  background: var(--surface); border: 1.5px solid var(--border-md);
+  border-radius: 14px; color: var(--muted);
+  font-family: inherit; font-size: .88rem; font-weight: 600;
+  cursor: pointer; transition: all .15s;
+}
+.home-fab-manual:hover {
+  border-color: var(--primary-lt); color: var(--ink);
+  background: rgba(139,26,18,.06);
+}
+.home-fab-manual:active { transform: scale(.97); }
+
+/* Ripasso button — rectangular at bottom */
+.home-ripasso-rect {
+  width: 100%; padding: 15px;
+  background: var(--surface); border: 1.5px solid var(--border-str);
+  border-radius: 14px; color: var(--ink);
+  font-family: inherit; font-weight: 700; font-size: .95rem;
+  cursor: pointer; transition: all .15s;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+}
+.home-ripasso-rect:hover {
+  border-color: var(--accent); background: rgba(212,105,42,.07);
+}
+
+/* ═══ MATERIA SCREEN (mobile pannello argomenti) ═══ */
+.materia-screen { height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
+.materia-screen .arg-screen { height: 100dvh; }
+
+/* FAB "+" per aggiungere argomenti nella materia screen */
+.fab-plus {
+  position: fixed; bottom: 28px; right: 20px; z-index: 150;
+  width: 52px; height: 52px; border-radius: 50%;
+  background: var(--gradient); border: none; color: white;
+  font-size: 1.6rem; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; box-shadow: 0 6px 20px rgba(139,26,18,.4);
+  transition: transform .2s;
+}
+.fab-plus:hover  { transform: scale(1.1); }
+.fab-plus:active { transform: scale(.93); }
+
+/* FAB romboide per ripasso */
+.fab-diamond {
+  position: fixed; bottom: 28px; right: 20px; z-index: 150;
+  width: 52px; height: 52px;
+  background: var(--gradient); border: none; color: white;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transform: rotate(45deg);
+  border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(139,26,18,.4);
+  transition: transform .2s, box-shadow .2s;
+}
+.fab-diamond:hover  { transform: rotate(45deg) scale(1.1); box-shadow: 0 10px 30px rgba(139,26,18,.55); }
+.fab-diamond:active { transform: rotate(45deg) scale(.93); }
+.fab-diamond-inner { transform: rotate(-45deg); font-size: 1.4rem; display: flex; }
+
+/* ═══ MATERIA TILE — gradiente fallback ═══ */
+.materia-tile2-grad-0 { background: linear-gradient(135deg, #1A1A3E, #2D1B4E) !important; }
+.materia-tile2-grad-1 { background: linear-gradient(135deg, #1E2A3A, #0F3460) !important; }
+.materia-tile2-grad-2 { background: linear-gradient(135deg, #1A2E2A, #0D3B2E) !important; }
+.materia-tile2-grad-3 { background: linear-gradient(135deg, #2E1A1A, #4E1C1C) !important; }
+.materia-tile2-grad-4 { background: linear-gradient(135deg, #1E1A2E, #2E2340) !important; }
+.materia-tile2-grad-5 { background: linear-gradient(135deg, #1A2E1A, #1F4020) !important; }
+
+/* ═══ STORICO OUTPUT — STELLINA SALVATA ═══ */
+.storico-starred { color: #F59E0B; }
+.storico-star-btn {
+  background: none; border: none; cursor: pointer; padding: 4px;
+  color: var(--muted); font-size: 1rem; line-height: 1; border-radius: 6px;
+  transition: color .15s;
+  flex-shrink: 0;
+}
+.storico-star-btn:hover { color: #F59E0B; }
+.storico-star-btn.starred { color: #F59E0B; }
+
+/* ═══ TOOL CARD — CLICK DIRETTO + PENNINA ═══ */
+.tool-card-pen-btn {
+  position: absolute; top: 10px; right: 10px;
+  background: var(--surface-2); border: none; border-radius: 8px;
+  width: 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: var(--muted); transition: all .2s; font-size: .75rem;
+}
+.tool-card-pen-btn:hover { background: var(--accent); color: white; }
+
+/* ═══ ARGOMENTO SCREEN CHAT FIX ═══ */
+.arg-chat-container {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0;
+}
+.arg-chat-messages {
+  flex: 1; overflow-y: auto; padding: 12px 16px;
+  display: flex; flex-direction: column; gap: 10px;
+  scrollbar-width: none;
+}
+.arg-chat-messages::-webkit-scrollbar { display: none; }
+.arg-chat-container .chat-input-row {
+  padding: 0 16px 12px; flex-shrink: 0;
+}
+
+/* ═══ DESKTOP arg: custom widths via CSS vars ═══
+   Each handle is 5px; 2 handles = 10px total subtracted evenly across 3 cols */
+@media (min-width: 769px) {
+  .arg-col-fonti  { flex: 0 0 calc(var(--col-fonti, 25%) - 3.34px); max-width: calc(var(--col-fonti, 25%) - 3.34px); }
+  .arg-col-chat   { flex: 0 0 calc(var(--col-chat, 45%)  - 3.33px); max-width: calc(var(--col-chat, 45%)  - 3.33px); }
+  .arg-col-lab    { flex: 0 0 calc(var(--col-lab, 30%)   - 3.33px); max-width: calc(var(--col-lab, 30%)   - 3.33px); }
+}
+
+/* ═══ RESPONSIVE HOME: on very small screens keep single col ═══ */
+@media (max-width: 380px) {
+  .materie-tiles { grid-template-columns: 1fr 1fr !important; }
 }

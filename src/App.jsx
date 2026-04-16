@@ -1013,7 +1013,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     </div>}
 
     {/* LOADING */}
-    {screen==='loading'&&<div className="screen" style={{background:'var(--dark-bg)',alignItems:'center',justifyContent:'center',gap:32}}>
+    {screen==='loading'&&<div className="screen loading-screen" style={{background:'#ffffff',alignItems:'center',justifyContent:'center',gap:32}}>
       <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:16}}>
         <LogoSVG size={96}/><Brand size="2rem"/>
         <div className="loading-bar-track"><div className="loading-bar-fill"/></div>
@@ -1021,7 +1021,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     </div>}
 
     {/* LOGIN */}
-    {screen==='login'&&<div className="screen" style={{background:'var(--bg)',alignItems:'center',justifyContent:'center',padding:24}}>
+    {screen==='login'&&<div className="screen login-screen" style={{background:'#ffffff',alignItems:'center',justifyContent:'center',padding:24}}>
       <div className="login-card">
         <div className="login-header"><LogoSVG size={72}/><Brand size="1.6rem"/><p>Studia più veloce con l'AI</p></div>
         <div className="tabs">

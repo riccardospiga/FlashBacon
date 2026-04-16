@@ -1395,7 +1395,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
 
     </div>}
     {/* PROFILO */}
-    {screen==='profilo'&&<div className="screen anim" style={{background:'var(--bg)'}}>
+    {screen==='profilo'&&<div className="screen anim profilo-screen">
       <AppHeader title="Profilo" onBack={()=>navTo('home')} backLabel="← Home"/>
       <div className="profilo-scroll">
 

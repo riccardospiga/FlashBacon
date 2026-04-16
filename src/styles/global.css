@@ -2337,3 +2337,147 @@ body:has(.materia-screen) .app-shell {
 @media (max-width: 380px) {
   .materie-tiles { grid-template-columns: 1fr 1fr !important; }
 }
+
+/* ═══ HOME V3 — Apple light theme ═══ */
+.home-screen-v3 {
+  background: #ffffff;
+  font-family: system-ui, -apple-system, sans-serif;
+  display: flex; flex-direction: column;
+  height: 100%; overflow: hidden;
+}
+
+/* Header */
+.hv3-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 20px;
+  height: 52px; flex-shrink: 0;
+  background: #ffffff;
+  border-bottom: 1px solid #f0f0f0;
+}
+.hv3-brand {
+  font-size: 17px; font-weight: 600; color: #000;
+  letter-spacing: -.2px;
+}
+.hv3-avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: #FF3B30; border: none;
+  color: #fff; font-size: 13px; font-weight: 600;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Body */
+.hv3-body {
+  flex: 1; display: flex; overflow: hidden;
+}
+
+/* Left column */
+.hv3-left {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden;
+  min-width: 0;
+}
+.hv3-scroll {
+  flex: 1; overflow-y: auto; padding: 16px 16px 8px;
+}
+.hv3-empty {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 8px; color: #999; font-size: 14px; padding: 48px 0;
+}
+.hv3-empty span { font-size: 32px; }
+
+/* Subject card grid */
+.hv3-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+}
+.hv3-card {
+  background: #ffffff; border: 1px solid #ebebeb; border-radius: 16px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 8px; padding: 20px 10px 16px;
+  cursor: pointer; position: relative;
+  transition: border-color .15s, box-shadow .15s;
+  min-height: 90px;
+}
+.hv3-card:active { transform: scale(.97); }
+.hv3-card.active { border: 1.5px solid #FF3B30; }
+.hv3-card.sel { border: 1.5px solid #FF3B30; background: #fff5f5; }
+.hv3-card-emoji { font-size: 32px; line-height: 1; }
+.hv3-card-name {
+  font-size: 12px; font-weight: 500; color: #111;
+  text-align: center; line-height: 1.3;
+  word-break: break-word;
+}
+
+/* Bottom row */
+.hv3-bottom-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px 16px; flex-shrink: 0;
+}
+.hv3-ripasso-btn {
+  flex: 1; border: 1.5px solid #e0e0e0; background: #fff;
+  border-radius: 14px; padding: 16px; font-size: 15px;
+  font-weight: 500; color: #111; cursor: pointer;
+  font-family: inherit; transition: border-color .15s;
+}
+.hv3-ripasso-btn:hover { border-color: #bbb; }
+.hv3-fab {
+  width: 58px; height: 58px; border-radius: 50%;
+  background: #FF3B30; border: none;
+  color: #fff; font-size: 30px; line-height: 1;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: transform .15s, opacity .15s;
+  box-shadow: 0 4px 16px rgba(255,59,48,.35);
+}
+.hv3-fab:hover { opacity: .9; }
+.hv3-fab:active { transform: scale(.93); }
+
+/* Right column — hidden on mobile */
+.hv3-right { display: none; }
+
+/* Right column contents */
+.hv3-right-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 16px 12px; flex-shrink: 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+.hv3-right-title {
+  font-size: 14px; font-weight: 600; color: #111;
+}
+.hv3-nuovo-btn {
+  display: flex; align-items: center; gap: 4px;
+  background: #FF3B30; color: #fff; border: none;
+  border-radius: 8px; padding: 5px 10px;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  font-family: inherit; transition: opacity .15s;
+}
+.hv3-nuovo-btn:hover { opacity: .88; }
+.hv3-nuovo-plus { font-size: 14px; font-weight: 400; line-height: 1; }
+
+.hv3-arg-list {
+  flex: 1; overflow-y: auto; padding: 10px 12px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.hv3-arg-card {
+  background: #fff; border: 1px solid #ebebeb; border-radius: 11px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 11px 12px; cursor: pointer;
+  transition: border-color .12s;
+}
+.hv3-arg-card:hover { border-color: #ccc; }
+.hv3-arg-card:active { transform: scale(.98); }
+.hv3-arg-card.sel { border-color: #FF3B30; background: #fff5f5; }
+.hv3-arg-name { font-size: 13px; font-weight: 500; color: #111; }
+.hv3-arg-arrow { color: #bbb; font-size: 16px; }
+.hv3-right-empty {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; color: #bbb;
+}
+
+/* Desktop ≥768px: split layout */
+@media (min-width: 768px) {
+  .hv3-left { border-right: 1px solid #f0f0f0; }
+  .hv3-right {
+    display: flex; flex-direction: column;
+    width: 220px; flex-shrink: 0;
+    background: #fafafa; overflow: hidden;
+  }
+}

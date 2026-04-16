@@ -1043,56 +1043,48 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     </div>}
 
     {/* HOME */}
-    {screen==='home'&&<div className="screen anim home-screen">
+    {screen==='home'&&<div className="screen anim home-screen-v3">
 
-      {/* ── Header: titolo centrato, avatar destra ── */}
-      <div className="app-header">
-        <div className="app-header-left"/>
-        <div className="app-header-title" style={{fontFamily:"'Syne',sans-serif",fontWeight:800,letterSpacing:'1px',fontSize:'1.05rem'}}>FLASHBACON</div>
-        <div className="app-header-right">
-          <button className="account-btn" onClick={()=>setScreen('profilo')}>
-            {utente?.nome?.[0]?.toUpperCase()||'?'}
-          </button>
-        </div>
+      {/* ── Header piatto Apple ── */}
+      <div className="hv3-header">
+        <span className="hv3-brand">FlashBacon</span>
+        <button className="hv3-avatar" onClick={()=>setScreen('profilo')}>
+          {utente?.nome?.[0]?.toUpperCase()||'?'}
+        </button>
       </div>
 
-      <div className="home-layout2">
+      <div className="hv3-body">
 
-        {/* ── Left: materie tiles ── */}
-        <div className="home-col-left">
+        {/* ── Colonna sinistra: griglia materie ── */}
+        <div className="hv3-left">
+          <div className="hv3-scroll">
+            {selMaterie.size>0&&<div className="sel-bar" style={{marginBottom:10}}>
+              <span>{selMaterie.size} selezionate</span>
+              <button className="btn-sm danger" onClick={()=>setDialog({icon:'🗑️',title:'Elimina materie?',msg:`Eliminare ${selMaterie.size} materie con tutti i contenuti?`,confirmLabel:'Elimina',danger:true,onConfirm:()=>deleteMaterie(selMaterie)})}>Elimina</button>
+            </div>}
 
-          {/* Selezione multipla bar */}
-          {selMaterie.size>0&&<div className="sel-bar" style={{marginBottom:10}}>
-            <span>{selMaterie.size} selezionate</span>
-            <button className="btn-sm danger" onClick={()=>setDialog({icon:'🗑️',title:'Elimina materie?',msg:`Eliminare ${selMaterie.size} materie con tutti i contenuti?`,confirmLabel:'Elimina',danger:true,onConfirm:()=>deleteMaterie(selMaterie)})}>Elimina</button>
-          </div>}
-
-          {/* Tiles */}
-          <div className="home-tiles-scroll">
             {materie.length===0
-              ?<div className="empty" style={{padding:'40px 0'}}><span>📚</span><p>Nessuna materia ancora. Carica con il &quot;+&quot; qui sotto!</p></div>
-              :<div className="materie-tiles">
-                {materie.map((m,idx)=>{
+              ?<div className="hv3-empty"><span>📚</span><p>Nessuna materia ancora.</p></div>
+              :<div className="hv3-grid">
+                {materie.map(m=>{
                   const isSel=selMaterie.has(m.id)
-                  const cover=m.cover_image||m.cover_url
-                  const gradClass=`materia-tile2-grad-${idx%6}`
+                  const isActive=m.id===curMateriaId
                   return(
                     <div key={m.id}
-                      className={`materia-tile2${isSel?' selected':''} ${!cover?gradClass:''}`}
-                      style={cover?{backgroundImage:`url(${cover})`}:{}}
+                      className={`hv3-card${isActive?' active':''}${isSel?' sel':''}`}
                       onClick={()=>{
                         if(selMaterie.size>0){const n=new Set(selMaterie);n.has(m.id)?n.delete(m.id):n.add(m.id);setSelMaterie(n);return}
                         setCurMateriaId(m.id)
                         loadArgomenti(m.id)
-                        if(window.innerWidth<769)setScreen('materia')
+                        if(window.innerWidth<768)setScreen('materia')
                       }}
                       onContextMenu={e=>{e.preventDefault();const n=new Set(selMaterie);n.has(m.id)?n.delete(m.id):n.add(m.id);setSelMaterie(n)}}
                       onTouchStart={()=>{lpRef.current=setTimeout(()=>{const n=new Set(selMaterie);n.has(m.id)?n.delete(m.id):n.add(m.id);setSelMaterie(n)},600)}}
                       onTouchEnd={()=>clearTimeout(lpRef.current)}
                     >
-                      {cover&&<div className="materia-tile2-ov"/>}
-                      {selMaterie.size>0&&<div className={`sel-check${isSel?' checked':''}`} style={{position:'absolute',top:8,left:8}}>{isSel&&<svg width="12" height="12" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>}</div>}
-                      <span className="materia-tile2-name">{m.nome}</span>
+                      {selMaterie.size>0&&<div className={`sel-check${isSel?' checked':''}`} style={{position:'absolute',top:6,left:6}}>{isSel&&<svg width="12" height="12" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>}</div>}
+                      <span className="hv3-card-emoji">{m.emoji||'📚'}</span>
+                      <span className="hv3-card-name">{m.nome}</span>
                     </div>
                   )
                 })}
@@ -1100,47 +1092,36 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
             }
           </div>
 
-          {/* FAB Upload centrale + Ripasso rettangolare */}
-          <div className="home-fab-row">
-            <div style={{display:'flex',alignItems:'center',gap:16}}>
-              <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:6}}>
-                <button className="home-fab-upload" onClick={()=>setShowUploadModal(true)} title="Carica materiale con AI">+</button>
-                <span className="home-fab-label">Carica con AI</span>
-              </div>
-              <button className="home-fab-manual" onClick={()=>{setNewMatNome('');setNewMatCoverImg(null);setMatImgResults([]);setNewMatDizionario(false);setNewMatLingua('');setSheetMat(true)}} title="Crea materia vuota">
-                <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/><path d="M12 10v4M10 12h4"/></svg>
-                <span>Nuova materia</span>
-              </button>
-            </div>
-            <button className="home-ripasso-rect" onClick={()=>navTo('ripasso')}>Ripasso</button>
+          {/* Bottom row: Ripasso + FAB + */}
+          <div className="hv3-bottom-row">
+            <button className="hv3-ripasso-btn" onClick={()=>navTo('ripasso')}>Ripasso</button>
+            <button className="hv3-fab" onClick={()=>setShowUploadModal(true)}>+</button>
           </div>
-
         </div>
 
-        {/* ── Right: argomenti (visibile solo desktop ≥769px) ── */}
-        <div className="home-col-right">
+        {/* ── Colonna destra: argomenti (solo desktop) ── */}
+        <div className="hv3-right">
           {curMateriaId
             ?<>
-              <div className="home-col-right-title" style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-                <span>{materie.find(m=>m.id===curMateriaId)?.nome}</span>
-                <button className="icon-btn" style={{flexShrink:0}} onClick={()=>{setNewArgNome('');setSheetArg(true)}}>
-                  <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+              <div className="hv3-right-header">
+                <span className="hv3-right-title">{materie.find(m=>m.id===curMateriaId)?.nome}</span>
+                <button className="hv3-nuovo-btn" onClick={()=>{setNewArgNome('');setSheetArg(true)}}>
+                  <span className="hv3-nuovo-plus">+</span> Nuovo
                 </button>
               </div>
               {argomenti.filter(a=>a.materia_id===curMateriaId).length===0
-                ?<div className="empty"><span>📝</span><p>Nessun argomento. Creane uno!</p></div>
-                :<div className="argomenti-list">
+                ?<div className="hv3-empty" style={{padding:'24px 0'}}><span>📝</span><p>Nessun argomento.</p></div>
+                :<div className="hv3-arg-list">
                   {argomenti.filter(a=>a.materia_id===curMateriaId).map(a=>(
                     <div key={a.id}
-                      className={'argomento-row'+(selArg.has(a.id)?' selected':'')}
+                      className={'hv3-arg-card'+(selArg.has(a.id)?' sel':'')}
                       onClick={()=>{if(selArg.size>0){const n=new Set(selArg);n.has(a.id)?n.delete(a.id):n.add(a.id);setSelArg(n);return}openArgomento(a)}}
                       onContextMenu={e=>{e.preventDefault();const n=new Set(selArg);n.has(a.id)?n.delete(a.id):n.add(a.id);setSelArg(n)}}
                       onTouchStart={()=>{lpRef.current=setTimeout(()=>{const n=new Set(selArg);n.has(a.id)?n.delete(a.id):n.add(a.id);setSelArg(n)},600)}}
                       onTouchEnd={()=>clearTimeout(lpRef.current)}
                     >
-                      {selArg.size>0&&<div className={'sel-check'+(selArg.has(a.id)?' checked':'')} style={{position:'static',flexShrink:0}}>{selArg.has(a.id)&&<svg width="12" height="12" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>}</div>}
-                      <div className="argomento-name">{a.nome}</div>
-                      <span style={{color:'var(--muted)'}}>›</span>
+                      <span className="hv3-arg-name">{a.nome}</span>
+                      <span className="hv3-arg-arrow">›</span>
                     </div>
                   ))}
                 </div>
@@ -1150,7 +1131,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
                 <button className="btn-sm danger" onClick={()=>setDialog({icon:'🗑️',title:'Elimina argomenti?',msg:'Elimina gli argomenti selezionati?',confirmLabel:'Elimina',danger:true,onConfirm:()=>deleteArgomenti(selArg)})}>Elimina</button>
               </div>}
             </>
-            :<div className="home-col-right-empty"><p>← Seleziona una materia</p></div>
+            :<div className="hv3-right-empty">Seleziona una materia</div>
           }
         </div>
 

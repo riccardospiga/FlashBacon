@@ -236,7 +236,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   // Guida search
   const [guidaSearch,setGuidaSearch]=useState('')
   // Desktop 3-col widths (%)
-  const [colWidths,setColWidths]=useState([25,45,30])
+  const [colWidths,setColWidths]=useState(()=>{try{const s=sessionStorage.getItem('fb_col');return s?JSON.parse(s):[25,45,30]}catch{return [25,45,30]}})
   const dragRef=useRef(null) // {col: 0|1, startX, startWidths}
   // Ripasso V2
   const [rNome,setRNome]=useState('')
@@ -460,7 +460,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
         w[1]=Math.max(MIN,Math.min(w[0]+w[1]-MIN,w[1]+dpct))
         w[2]=100-w[0]-w[1]
       }
-      if(w[0]>=MIN&&w[1]>=MIN&&w[2]>=MIN)setColWidths(w)
+      if(w[0]>=MIN&&w[1]>=MIN&&w[2]>=MIN){setColWidths(w);sessionStorage.setItem('fb_col',JSON.stringify(w))}
     }
     const onUp=()=>{dragRef.current=null;window.removeEventListener('mousemove',onMove);window.removeEventListener('mouseup',onUp)}
     window.addEventListener('mousemove',onMove)
@@ -1181,248 +1181,216 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     {/* ARGOMENTO DETAIL */}
     {screen==='argomento'&&<div className="screen anim arg-screen">
 
-      {/* ── Header: back sinistra, titolo centrato, avatar destra ── */}
-      <AppHeader
-        onBack={()=>navTo('materia')}
-        backLabel="← Indietro"
-        titleNode={
-          editingArgTitle
-            ?<input
-                className="arg-title-input"
-                value={argTitleVal}
+      {/* ── Header ── */}
+      <div className="av3-header">
+        <button className="av3-back" onClick={()=>navTo('materia')}>
+          <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <div className="av3-title">
+          {editingArgTitle
+            ?<input className="av3-title-input" value={argTitleVal}
                 onChange={e=>setArgTitleVal(e.target.value)}
                 onBlur={()=>{renameArgomento(curArgomento,argTitleVal);setEditingArgTitle(false)}}
                 onKeyDown={e=>{if(e.key==='Enter'){renameArgomento(curArgomento,argTitleVal);setEditingArgTitle(false)}else if(e.key==='Escape')setEditingArgTitle(false)}}
-                autoFocus
-              />
-            :<span className="arg-header-title" onClick={()=>{setArgTitleVal(curArgomento?.nome||'');setEditingArgTitle(true)}}>
-              {curArgomento?.nome}
-            </span>
-        }
-        right={
-          <button className="account-btn" style={{fontSize:'.75rem'}} onClick={()=>setScreen('profilo')}>
-            {utente?.nome?.[0]?.toUpperCase()||'?'}
-          </button>
-        }
-      />
+                autoFocus/>
+            :<span onClick={()=>{setArgTitleVal(curArgomento?.nome||'');setEditingArgTitle(true)}}>{curArgomento?.nome}</span>
+          }
+        </div>
+        <button className="av3-avatar" onClick={()=>setScreen('profilo')}>
+          {utente?.nome?.[0]?.toUpperCase()||'?'}
+        </button>
+      </div>
 
-      {/* ── Tab content — desktop 3 colonne, mobile tab singolo ── */}
-      <div className="arg-content" style={{
-        '--col-fonti':`${colWidths[0]}%`,
-        '--col-chat':`${colWidths[1]}%`,
-        '--col-lab':`${colWidths[2]}%`,
-      }}>
+      {/* ── 3 colonne (desktop) / tab panels (mobile) ── */}
+      <div className="av3-body" style={{'--w0':`${colWidths[0]}%`,'--w1':`${colWidths[1]}%`,'--w2':`${colWidths[2]}%`}}>
 
         {/* ─ FONTI ─ */}
-        <div className={`arg-tab-panel arg-col-fonti${argTab==='fonti'?' active':''}`} style={{borderRight:'1px solid var(--border)'}}>
-        <div className="arg-col-header">Fonti</div>
-        <div className="arg-body">
-          {selFonti.size>0&&<div className="sel-bar">
-            <span>{selFonti.size} selezionate</span>
-            <button className="btn-sm danger" onClick={deleteFontiSel}>Elimina</button>
-          </div>}
-          {argFonti.length===0&&<div className="empty"><span>📂</span><p>Nessuna fonte ancora.</p></div>}
-          {argFonti.map(f=>{
-            const ext=getExt(f.nome)
-            const isImg=isImgExt(ext)||(f.tipo==='file'&&f.url?.match(/.(jpg|jpeg|png|gif|webp)/i))
-            const icon=f.tipo==='text'?'✏️':f.tipo==='url'?'🔗':(EXT_ICON[ext]||'📎')
-            const isSel=selFonti.has(f.id)
-            return(
-              <div key={f.id} className="fonte-row"
-                style={{border:isSel?'2px solid var(--primary-lt)':'2px solid transparent',cursor:'pointer'}}
-                onClick={()=>{
-                  if(selFonti.size>0){const n=new Set(selFonti);n.has(f.id)?n.delete(f.id):n.add(f.id);setSelFonti(n);return}
-                  setPreviewFonte(f)
-                }}
-                onContextMenu={e=>{e.preventDefault();const n=new Set(selFonti);n.has(f.id)?n.delete(f.id):n.add(f.id);setSelFonti(n)}}
-                onTouchStart={()=>{lpRef.current=setTimeout(()=>{const n=new Set(selFonti);n.has(f.id)?n.delete(f.id):n.add(f.id);setSelFonti(n)},600)}}
-                onTouchEnd={()=>clearTimeout(lpRef.current)}
-              >
-                {selFonti.size>0&&<div className={'sel-check'+(isSel?' checked':'')} style={{position:'static',flexShrink:0}}>{isSel&&<svg width="12" height="12" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>}</div>}
-                <div className="fonte-preview">{isImg?<img src={f.url} alt={f.nome}/>:<span>{icon}</span>}</div>
-                <div className="fonte-name">
-                  {f.nome}
-                  <span className="fonte-type">{f.tipo==='text'?'Testo incollato':f.tipo==='url'?'Link web':ext.toUpperCase()}</span>
+        <div className={`av3-panel av3-fonti${argTab==='fonti'?' av3-active':''}`}>
+          <div className="av3-panel-inner">
+            {selFonti.size>0&&<div className="sel-bar" style={{marginBottom:8}}>
+              <span>{selFonti.size} selezionate</span>
+              <button className="btn-sm danger" onClick={deleteFontiSel}>Elimina</button>
+            </div>}
+            {argFonti.length===0&&<div className="av3-empty"><svg width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg><span>Nessuna fonte</span></div>}
+            {argFonti.map(f=>{
+              const ext=getExt(f.nome)
+              const isImg=isImgExt(ext)||(f.tipo==='file'&&f.url?.match(/.(jpg|jpeg|png|gif|webp)/i))
+              const icon=f.tipo==='text'?'✏️':f.tipo==='url'?'🔗':(EXT_ICON[ext]||'📎')
+              const isSel=selFonti.has(f.id)
+              return(
+                <div key={f.id} className={`av3-fonte-row${isSel?' sel':''}`}
+                  onClick={()=>{if(selFonti.size>0){const n=new Set(selFonti);n.has(f.id)?n.delete(f.id):n.add(f.id);setSelFonti(n);return}setPreviewFonte(f)}}
+                  onContextMenu={e=>{e.preventDefault();const n=new Set(selFonti);n.has(f.id)?n.delete(f.id):n.add(f.id);setSelFonti(n)}}
+                  onTouchStart={()=>{lpRef.current=setTimeout(()=>{const n=new Set(selFonti);n.has(f.id)?n.delete(f.id):n.add(f.id);setSelFonti(n)},600)}}
+                  onTouchEnd={()=>clearTimeout(lpRef.current)}
+                >
+                  {selFonti.size>0&&<div className={'sel-check'+(isSel?' checked':'')} style={{position:'static',flexShrink:0}}>{isSel&&<svg width="12" height="12" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>}</div>}
+                  <div className="av3-fonte-thumb">{isImg?<img src={f.url} alt={f.nome}/>:<span>{icon}</span>}</div>
+                  <div className="av3-fonte-info">
+                    <div className="av3-fonte-name">{f.nome}</div>
+                    <div className="av3-fonte-sub">{f.tipo==='text'?'Testo':f.tipo==='url'?'Link':ext.toUpperCase()}</div>
+                  </div>
+                  <button className="av3-fonte-btn" title="Rinomina" onClick={e=>{e.stopPropagation();setSheetRename(f);setRenameVal(f.nome)}}>
+                    <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                  </button>
+                  <button className="av3-fonte-btn av3-del" title="Elimina" onClick={e=>{e.stopPropagation();deleteFonte(f)}}>
+                    <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
+                  </button>
                 </div>
-                <button className="fonte-btn" onClick={e=>{e.stopPropagation();setSheetRename(f);setRenameVal(f.nome)}}>
-                  <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                </button>
-                <button className="fonte-btn del" onClick={e=>{e.stopPropagation();deleteFonte(f)}}>
-                  <svg width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>
-                </button>
-              </div>
-            )
-          })}
-          <button className="fonti-add-btn fonti-add-bottom" onClick={()=>setShowFontiUpload(true)}>
-            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+              )
+            })}
+          </div>
+          <button className="av3-add-fonte" onClick={()=>setShowFontiUpload(true)}>
+            <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
             Aggiungi fonte
           </button>
         </div>
-        </div>
 
-        {/* Drag handle Fonti|Chat */}
-        <div className="arg-drag-handle" onMouseDown={e=>startDrag(0,e)}/>
+        {/* Drag handle 1 */}
+        <div className="av3-handle" onMouseDown={e=>startDrag(0,e)}/>
 
         {/* ─ CHAT ─ */}
-        <div className={`arg-tab-panel arg-col-chat${argTab==='chat'?' active':''}`} style={{borderRight:'1px solid var(--border)'}}>
-        <div className="arg-col-header" style={{justifyContent:'space-between'}}>
-          <span>Chat</span>
-          <button className="chat-prompt-btn" onClick={()=>setSheetPromptMode(true)} title="Impostazioni risposta">
-            {promptMode.mode==='learning'?'🎓':promptMode.mode==='custom'?'✍️':'🤖'}
-            <span className="chat-prompt-len">{['B','M','L'][chatLength-1]}</span>
-          </button>
-        </div>
-        <div className="arg-chat-container">
-          <div className="arg-chat-messages">
-            {chatMsgs.length===0&&<div className="empty"><span>💬</span><p>Chatta con l'AI sulle fonti caricate</p></div>}
+        <div className={`av3-panel av3-chat${argTab==='chat'?' av3-active':''}`}>
+          <div className="av3-chat-msgs" ref={el=>{if(el)chatEndRef.current=el.lastElementChild}}>
+            {chatMsgs.length===0&&<div className="av3-empty"><svg width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg><span>Nessun messaggio</span></div>}
             {chatMsgs.map((m,i)=>(
-              <div key={i} className={'chat-bubble '+m.role}>
-                <div className="chat-sender">{m.role==='user'?'Tu':'FlashBacon AI'}</div>
-                {m.role==='ai'?cleanText(m.content):m.content}
+              <div key={i} className={`av3-bubble av3-bubble-${m.role}`}>
+                <div className="av3-bubble-sender">{m.role==='user'?'Tu':'AI'}</div>
+                <div className="av3-bubble-text">{m.role==='ai'?cleanText(m.content):m.content}</div>
               </div>
             ))}
-            {chatLoading&&<div className="chat-bubble ai"><div style={{display:'flex',gap:6,alignItems:'center'}}><Spinner/><span style={{fontSize:'.85rem'}}>Sto pensando…</span></div></div>}
+            {chatLoading&&<div className="av3-bubble av3-bubble-ai"><div className="av3-bubble-sender">AI</div><div style={{display:'flex',gap:6,alignItems:'center'}}><Spinner/><span style={{fontSize:'.83rem',color:'#888'}}>Sto pensando…</span></div></div>}
             <div ref={chatEndRef}/>
           </div>
-          <div className="chat-input-row" style={{flexShrink:0}}>
-            <textarea className="chat-input chat-textarea" value={chatInput}
+          <div className="av3-chat-footer">
+            <button className="av3-mode-btn" onClick={()=>setSheetPromptMode(true)} title="Impostazioni risposta">
+              {promptMode.mode==='learning'?'🎓':promptMode.mode==='custom'?'✍️':'🤖'}<span className="av3-mode-len">{['B','M','L'][chatLength-1]}</span>
+            </button>
+            <textarea className="av3-chat-input" value={chatInput}
               onChange={e=>setChatInput(e.target.value)}
-              onInput={e=>{e.target.style.height='auto';e.target.style.height=Math.min(e.target.scrollHeight,140)+'px'}}
-              placeholder={aiBlocked?'Limite token raggiunto':'Fai una domanda… (Invio per inviare, Shift+Invio per a capo)'}
+              onInput={e=>{e.target.style.height='auto';e.target.style.height=Math.min(e.target.scrollHeight,120)+'px'}}
+              placeholder={aiBlocked?'Limite token raggiunto':'Scrivi un messaggio…'}
               disabled={aiBlocked} rows={1}
               onKeyDown={e=>{if(e.key==='Enter'&&!e.shiftKey&&!aiBlocked){e.preventDefault();sendChat()}}}/>
-            <button className="btn-send" onClick={sendChat} disabled={chatLoading||aiBlocked}>
-              <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>
+            <button className="av3-send-btn" onClick={sendChat} disabled={chatLoading||aiBlocked}>
+              <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>
             </button>
           </div>
         </div>
-        </div>
 
-        {/* Drag handle Chat|Lab */}
-        <div className="arg-drag-handle" onMouseDown={e=>startDrag(1,e)}/>
+        {/* Drag handle 2 */}
+        <div className="av3-handle" onMouseDown={e=>startDrag(1,e)}/>
 
         {/* ─ LAB ─ */}
-        <div className={`arg-tab-panel arg-col-lab${argTab==='lab'?' active':''}`}>
-        <div className="arg-col-header">Lab</div>
-        <div className="arg-body">
-          {activeProvider?.provider==='deepseek'&&argFonti.some(f=>f.tipo==='file')&&<div style={{background:'rgba(248,113,113,.08)',border:'1.5px solid rgba(248,113,113,.2)',borderRadius:12,padding:'10px 14px',fontSize:'.82rem',color:'#F87171'}}>⚠️ DeepSeek non supporta file. Solo testo e link funzioneranno.</div>}
-          {aiBlocked&&<div style={{background:'rgba(239,68,68,.08)',border:'1.5px solid rgba(239,68,68,.2)',borderRadius:12,padding:'10px 14px',fontSize:'.82rem',color:'#ef4444',fontWeight:600}}>🚫 Limite token raggiunto. Le funzioni AI sono disabilitate.</div>}
+        <div className={`av3-panel av3-lab${argTab==='lab'?' av3-active':''}`}>
+          <div className="av3-panel-inner">
+            {activeProvider?.provider==='deepseek'&&argFonti.some(f=>f.tipo==='file')&&(
+              <div className="av3-warn">⚠️ DeepSeek non supporta file allegati.</div>
+            )}
+            {aiBlocked&&<div className="av3-warn av3-warn-err">🚫 Limite token raggiunto.</div>}
 
-          {/* Quiz — click diretto = picker tipo, pennina = config */}
-          <div className={`tool-card tool-card-wide${aiBlocked?' tool-card-disabled':''}`} onClick={()=>!aiBlocked&&setShowQuizPicker(true)}>
-            <div className="tool-icon">❓</div>
-            <div style={{flex:1}}>
-              <div className="tool-name">Quiz</div>
-              <div className="tool-desc">Multipla · Aperta</div>
+            {/* Quiz wide */}
+            <div className={`av3-tool-wide${aiBlocked?' av3-disabled':''}`} onClick={()=>!aiBlocked&&setShowQuizPicker(true)}>
+              <span className="av3-tool-icon">❓</span>
+              <div className="av3-tool-info"><div className="av3-tool-name">Quiz</div><div className="av3-tool-desc">Multipla · Aperta</div></div>
+              <button className="av3-tool-cfg" onClick={e=>{e.stopPropagation();!aiBlocked&&openToolCfg('quiz')}}>✏️</button>
             </div>
-            <button className="tool-card-pen-btn" style={{position:'static',marginLeft:4}} onClick={e=>{e.stopPropagation();!aiBlocked&&openToolCfg('quiz')}} title="Personalizza">✏️</button>
+
+            {/* Grid tools */}
+            <div className="av3-tools-grid">
+              {[
+                {key:'riassunto',icon:'📝',name:'Riassunto',desc:'Sintesi'},
+                {key:'flashcards',icon:'🃏',name:'Flash Cards',desc:'Flip 3D'},
+                {key:'mappa',icon:'🗺️',name:'Mappa',desc:'Visuale'},
+                {key:'punti',icon:'🎯',name:'Punti chiave',desc:'Concetti'},
+                {key:'dizionario',icon:'📖',name:'Dizionario',desc:curMateria?.lingua||'Sinonimi'},
+              ].map(t=>(
+                <div key={t.key} className={`av3-tool${aiBlocked?' av3-disabled':''}`}
+                  onClick={()=>{
+                    if(aiBlocked)return
+                    if(t.key==='dizionario'){setLabInline(p=>p?.key==='dizionario'?null:{key:'dizionario',loading:false,data:null});return}
+                    runTool(t.key,outputCfg,false)
+                  }}>
+                  <button className="av3-tool-cfg" onClick={e=>{e.stopPropagation();!aiBlocked&&t.key!=='dizionario'&&openToolCfg(t.key)}}>✏️</button>
+                  <span className="av3-tool-icon">{t.icon}</span>
+                  <div className="av3-tool-name">{t.name}</div>
+                  <div className="av3-tool-desc">{t.desc}</div>
+                </div>
+              ))}
+            </div>
+
+            {labInline?.key==='dizionario'&&(
+              <div className="av3-diz">
+                <div className="av3-diz-row">
+                  <input className="av3-diz-input" value={labDizQuery} onChange={e=>setLabDizQuery(e.target.value)}
+                    placeholder="Inserisci una parola…"
+                    onKeyDown={e=>e.key==='Enter'&&runDizionario(labDizQuery)}/>
+                  <button className="av3-send-btn" onClick={()=>runDizionario(labDizQuery)} disabled={labInline.loading||!labDizQuery.trim()}>
+                    {labInline.loading?<Spinner/>:<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>}
+                  </button>
+                </div>
+                {labInline.data&&!labInline.loading&&(
+                  labInline.data.error?<div style={{color:'#f87171',fontSize:'.82rem'}}>{labInline.data.error}</div>:
+                  labInline.data.raw?<pre style={{fontSize:'.78rem',color:'#888',whiteSpace:'pre-wrap'}}>{labInline.data.raw}</pre>:
+                  <div className="lab-diz-result">
+                    {labInline.data.significati?.length>0&&<div className="lab-diz-section"><div className="lab-diz-label">Significati</div>{labInline.data.significati.map((s,i)=><div key={i} className="lab-diz-item">{s}</div>)}</div>}
+                    {labInline.data.sinonimi?.length>0&&<div className="lab-diz-section"><div className="lab-diz-label">Sinonimi</div><div style={{display:'flex',flexWrap:'wrap',gap:4}}>{labInline.data.sinonimi.map((s,i)=><span key={i} className="lab-diz-chip">{s}</span>)}</div></div>}
+                    {labInline.data.traduzioni&&<div className="lab-diz-section"><div className="lab-diz-label">Traduzioni</div><div className="lab-diz-traduzioni">{Object.entries(labInline.data.traduzioni).map(([lang,val])=><div key={lang} className="lab-diz-trad"><span className="lab-diz-lang">{lang.toUpperCase()}</span><span>{val}</span></div>)}</div></div>}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="av3-section-label">Generati</div>
+            {selStorico.size>0&&<div className="sel-bar" style={{marginBottom:8}}><span>{selStorico.size} selezionati</span><button className="btn-sm danger" onClick={deleteStoricoSel}>Elimina</button></div>}
+            {argStorico.length===0&&<div className="av3-empty"><svg width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg><span>Nessun output</span></div>}
+            {argStorico.map(s=>{
+              const isSel=selStorico.has(s.id)
+              const isStarred=s.stellato||false
+              const STLABEL={riassunto:'📝 Riassunto',mappa:'🗺️ Mappa',flashcards:'🃏 Flashcards',quiz:'❓ Quiz','quiz-aperta':'✍️ Quiz Aperta',punti:'🎯 Punti chiave',chat:'💬 Chat'}
+              const label=STLABEL[s.tipo]||s.tipo
+              const preview=s.tipo==='chat'
+                ?(s.contenuto.split('\n').find(l=>l.startsWith('Tu: '))?.slice(4)||'Conversazione')
+                :cleanText(s.contenuto).substring(0,60)
+              return(
+                <div key={s.id} className={`av3-storico-row${isSel?' sel':''}`}
+                  onClick={()=>{if(selStorico.size>0){const n=new Set(selStorico);n.has(s.id)?n.delete(s.id):n.add(s.id);setSelStorico(n);return}openStorico(s)}}
+                  onContextMenu={e=>{e.preventDefault();const n=new Set(selStorico);n.has(s.id)?n.delete(s.id):n.add(s.id);setSelStorico(n)}}
+                  onTouchStart={()=>{lpRef.current=setTimeout(()=>{const n=new Set(selStorico);n.has(s.id)?n.delete(s.id):n.add(s.id);setSelStorico(n)},600)}}
+                  onTouchEnd={()=>clearTimeout(lpRef.current)}
+                >
+                  {selStorico.size>0&&<div className={'sel-check'+(isSel?' checked':'')} style={{position:'static',flexShrink:0}}>{isSel&&<svg width="12" height="12" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>}</div>}
+                  <div style={{flex:1,minWidth:0}}>
+                    <div className="av3-storico-label">{label}</div>
+                    <div className="av3-storico-preview">{preview}{preview.length>=60?'…':''}</div>
+                    <div className="av3-storico-date">{fmtDate(s.created_at)}</div>
+                  </div>
+                  <div style={{display:'flex',gap:2,flexShrink:0,alignItems:'center'}}>
+                    <button className={`storico-star-btn${isStarred?' starred':''}`}
+                      onClick={async e=>{e.stopPropagation();await supabase.from('storico').update({stellato:!isStarred}).eq('id',s.id);setStorico(p=>p.map(x=>x.id===s.id?{...x,stellato:!isStarred}:x))}}
+                    >★</button>
+                    <button className="row-del" onClick={e=>{e.stopPropagation();deleteOneStorico(s.id)}}><svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></button>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-
-          <div className="tools-grid">
-            {[
-              {key:'riassunto',icon:'📝',name:'Riassunto',desc:'Sintesi strutturata'},
-              {key:'flashcards',icon:'🃏',name:'Flash Cards',desc:'Carte flip 3D'},
-              {key:'mappa',icon:'🗺️',name:'Mappa',desc:'Visuale interattiva'},
-              {key:'punti',icon:'🎯',name:'Punti chiave',desc:'Concetti chiave'},
-            ].map(t=>(
-              <div key={t.key} className={`tool-card${aiBlocked?' tool-card-disabled':''}`} onClick={()=>!aiBlocked&&runTool(t.key,outputCfg,false)}>
-                <button className="tool-card-pen-btn" onClick={e=>{e.stopPropagation();!aiBlocked&&openToolCfg(t.key)}} title="Personalizza">✏️</button>
-                <div className="tool-icon">{t.icon}</div>
-                <div className="tool-name">{t.name}</div>
-                <div className="tool-desc">{t.desc}</div>
-              </div>
-            ))}
-            <div className={`tool-card${aiBlocked?' tool-card-disabled':''}`} onClick={()=>!aiBlocked&&setLabInline(p=>p?.key==='dizionario'?null:{key:'dizionario',loading:false,data:null})}>
-              <div className="tool-icon">📖</div>
-              <div className="tool-name">Dizionario</div>
-              <div className="tool-desc">{curMateria?.lingua||'Significati · Sinonimi'}</div>
-            </div>
-          </div>
-
-          {labInline?.key==='dizionario'&&(
-            <div className="lab-dizionario">
-              <div className="lab-diz-row">
-                <input className="chat-input lab-diz-input" value={labDizQuery} onChange={e=>setLabDizQuery(e.target.value)}
-                  placeholder="Inserisci una parola…"
-                  onKeyDown={e=>e.key==='Enter'&&runDizionario(labDizQuery)}/>
-                <button className="btn-send" onClick={()=>runDizionario(labDizQuery)} disabled={labInline.loading||!labDizQuery.trim()}>
-                  {labInline.loading?<Spinner/>:<svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>}
-                </button>
-              </div>
-              {labInline.data&&!labInline.loading&&(
-                labInline.data.error?<div style={{color:'#f87171',fontSize:'.82rem'}}>{labInline.data.error}</div>:
-                labInline.data.raw?<pre style={{fontSize:'.78rem',color:'var(--muted)',whiteSpace:'pre-wrap'}}>{labInline.data.raw}</pre>:
-                <div className="lab-diz-result">
-                  {labInline.data.significati?.length>0&&<div className="lab-diz-section"><div className="lab-diz-label">Significati</div>{labInline.data.significati.map((s,i)=><div key={i} className="lab-diz-item">{s}</div>)}</div>}
-                  {labInline.data.sinonimi?.length>0&&<div className="lab-diz-section"><div className="lab-diz-label">Sinonimi</div><div style={{display:'flex',flexWrap:'wrap',gap:4}}>{labInline.data.sinonimi.map((s,i)=><span key={i} className="lab-diz-chip">{s}</span>)}</div></div>}
-                  {labInline.data.traduzioni&&<div className="lab-diz-section"><div className="lab-diz-label">Traduzioni</div><div className="lab-diz-traduzioni">{Object.entries(labInline.data.traduzioni).map(([lang,val])=><div key={lang} className="lab-diz-trad"><span className="lab-diz-lang">{lang.toUpperCase()}</span><span>{val}</span></div>)}</div></div>}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Output generati con stellina */}
-          <div className="lab-section-label" style={{marginTop:8}}>Generati</div>
-          {selStorico.size>0&&<div className="sel-bar"><span>{selStorico.size} selezionati</span><button className="btn-sm danger" onClick={deleteStoricoSel}>Elimina</button></div>}
-          {argStorico.length===0&&<div className="empty"><span>📋</span><p>Nessun output ancora. Genera qualcosa sopra!</p></div>}
-          {argStorico.map(s=>{
-            const isSel=selStorico.has(s.id)
-            const isStarred=s.stellato||false
-            const STLABEL={riassunto:'📝 Riassunto',mappa:'🗺️ Mappa',flashcards:'🃏 Flashcards',quiz:'❓ Quiz','quiz-aperta':'✍️ Quiz Aperta',punti:'🎯 Punti chiave',chat:'💬 Chat'}
-            const label=STLABEL[s.tipo]||s.tipo
-            const preview=s.tipo==='chat'
-              ?(s.contenuto.split('\n').find(l=>l.startsWith('Tu: '))?.slice(4)||'Conversazione')
-              :cleanText(s.contenuto).substring(0,70)
-            return(
-              <div key={s.id} className={'storico-row'+(isSel?' sel':'')}
-                onClick={()=>{if(selStorico.size>0){const n=new Set(selStorico);n.has(s.id)?n.delete(s.id):n.add(s.id);setSelStorico(n);return}openStorico(s)}}
-                onContextMenu={e=>{e.preventDefault();const n=new Set(selStorico);n.has(s.id)?n.delete(s.id):n.add(s.id);setSelStorico(n)}}
-                onTouchStart={()=>{lpRef.current=setTimeout(()=>{const n=new Set(selStorico);n.has(s.id)?n.delete(s.id):n.add(s.id);setSelStorico(n)},600)}}
-                onTouchEnd={()=>clearTimeout(lpRef.current)}
-              >
-                {selStorico.size>0&&<div className={'sel-check'+(isSel?' checked':'')} style={{position:'static',flexShrink:0}}>{isSel&&<svg width="12" height="12" fill="none" stroke="white" strokeWidth="3" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></svg>}</div>}
-                <div className="storico-info">
-                  <span className="storico-tipo">{label}</span>
-                  <div className="storico-preview">{preview}{preview.length>=70?'…':''}</div>
-                  <div className="storico-data">{fmtDate(s.created_at)}</div>
-                </div>
-                <div style={{display:'flex',gap:4,flexShrink:0,alignItems:'center'}}>
-                  <button className={`storico-star-btn${isStarred?' starred':''}`}
-                    onClick={async e=>{e.stopPropagation();await supabase.from('storico').update({stellato:!isStarred}).eq('id',s.id);setStorico(p=>p.map(x=>x.id===s.id?{...x,stellato:!isStarred}:x))}}
-                    title={isStarred?'Rimuovi stella':'Aggiungi stella'}
-                  >★</button>
-                  <button className="row-del" onClick={e=>{e.stopPropagation();deleteOneStorico(s.id)}}><svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></button>
-                </div>
-              </div>
-            )
-          })}
-        </div>
         </div>
 
       </div>
 
-      {/* ── Bottom Nav ── */}
-      <div className="arg-bottom-nav">
-        <button className={'arg-nav-btn'+(argTab==='fonti'?' active':'')} onClick={()=>setArgTab('fonti')}>
-          <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth={argTab==='fonti'?2.5:2} viewBox="0 0 24 24">
-            <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-          </svg>
-          Fonti
-        </button>
-        <button className={'arg-nav-btn'+(argTab==='chat'?' active':'')} onClick={()=>setArgTab('chat')}>
-          <svg width="22" height="22" fill={argTab==='chat'?'var(--primary-lt)':'none'} stroke={argTab==='chat'?'var(--primary-lt)':'currentColor'} strokeWidth="2" viewBox="0 0 24 24">
-            <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
-          </svg>
-          Chat
-        </button>
-        <button className={'arg-nav-btn'+(argTab==='lab'?' active':'')} onClick={()=>setArgTab('lab')}>
-          <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth={argTab==='lab'?2.5:2} viewBox="0 0 24 24">
-            <path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z"/>
-            <polyline points="14 2 14 8 20 8"/>
-            <line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/>
-          </svg>
-          Lab
-        </button>
+      {/* ── Bottom tab bar (mobile only) ── */}
+      <div className="av3-tabbar">
+        {[
+          {id:'fonti',label:'Fonti',path:'M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z'},
+          {id:'chat',label:'Chat',path:'M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z'},
+          {id:'lab',label:'Lab',path:'M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18'},
+        ].map(t=>(
+          <button key={t.id} className={`av3-tab-btn${argTab===t.id?' active':''}`} onClick={()=>setArgTab(t.id)}>
+            <svg width="20" height="20" fill="none" stroke="currentColor" strokeWidth={argTab===t.id?2.5:1.8} viewBox="0 0 24 24"><path d={t.path}/></svg>
+            <span>{t.label}</span>
+          </button>
+        ))}
       </div>
 
     </div>}

@@ -53,20 +53,10 @@ body {
 
 #root {
   width: 100%;
-  max-width: 430px;
   min-height: 100dvh;
-  margin: 0 auto;
   display: flex;
   flex-direction: column;
   overflow-x: hidden;
-}
-
-/* Expand root for screens that need full width */
-body:has(.arg-screen) #root,
-body:has(.arg-screen) .app-shell,
-body:has(.materia-screen) #root,
-body:has(.materia-screen) .app-shell {
-  max-width: 100%;
 }
 
 .app-shell {
@@ -448,8 +438,6 @@ body:has(.materia-screen) .app-shell {
 
 /* Desktop ≥1024px: layout 2 colonne (materie | argomenti) */
 @media (min-width: 1024px) {
-  body:has(.home-screen) #root,
-  body:has(.home-screen) .app-shell { max-width: 100%; }
   .home-layout2 { flex-direction: row; }
   .home-col-left {
     width: 380px; flex: none; flex-shrink: 0;
@@ -2022,8 +2010,6 @@ body:has(.materia-screen) .app-shell {
 
 /* Desktop ripasso: 2 colonne */
 @media (min-width: 1024px) {
-  body:has(.ripasso-screen) #root,
-  body:has(.ripasso-screen) .app-shell { max-width: 100%; }
   .ripasso-layout { flex-direction: row; }
   .ripasso-list-panel {
     width: 340px; flex: none; flex-shrink: 0;
@@ -2135,10 +2121,8 @@ body:has(.materia-screen) .app-shell {
 }
 
 @media (min-width: 769px) {
-  body:has(.profilo-screen) #root,
-  body:has(.profilo-screen) .app-shell { max-width: 100%; }
-  .profilo-screen .profilo-top { max-width: 480px; margin: 0 auto; width: 100%; border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
-  .profilo-screen .profilo-body { max-width: 480px; margin: 0 auto; width: 100%; padding: 20px 24px 40px; }
+  .profilo-screen .profilo-top { width: 100%; }
+  .profilo-screen .profilo-body { width: 100%; padding: 20px 24px 40px; }
 }
 
 /* ═══ LAB DIZIONARIO ═══ */
@@ -2485,10 +2469,6 @@ body:has(.materia-screen) .app-shell {
 
 /* ═══ RESPONSIVE: MOBILE GLOBAL (<768px) ═══ */
 @media (max-width: 767px) {
-
-  /* ── Root: espandi per home v3 e altre schermate ── */
-  body:has(.home-screen-v3) #root,
-  body:has(.home-screen-v3) .app-shell { max-width: 100%; }
 
   /* ── Overflow orizzontale: blocca su tutti i container ── */
   .screen, .fullpage, .up-modal, .sheet { overflow-x: hidden; }

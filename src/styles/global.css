@@ -2481,3 +2481,105 @@ body:has(.materia-screen) .app-shell {
     background: #fafafa; overflow: hidden;
   }
 }
+
+/* ═══ RESPONSIVE: MOBILE GLOBAL (<768px) ═══ */
+@media (max-width: 767px) {
+
+  /* ── Root: espandi per home v3 e altre schermate ── */
+  body:has(.home-screen-v3) #root,
+  body:has(.home-screen-v3) .app-shell { max-width: 100%; }
+
+  /* ── Overflow orizzontale: blocca su tutti i container ── */
+  .screen, .fullpage, .up-modal, .sheet { overflow-x: hidden; }
+
+  /* ── App header: padding ridotto ── */
+  .app-header { padding: 8px 12px; min-height: 50px; }
+  .app-header-left, .app-header-right { min-width: 54px; }
+  .app-header-title { font-size: .92rem; }
+  .back-btn { font-size: .82rem; padding: 7px 10px; }
+
+  /* ── Login: padding più stretto ── */
+  .login-card { padding: 24px 18px 20px; }
+
+  /* ── Upload modal: fullwidth ── */
+  .up-modal { max-width: 100%; border-radius: 20px 20px 0 0; }
+
+  /* ── Upload extra btns: possono andare su 2 righe ── */
+  .up-extra-btns { flex-wrap: wrap; }
+
+  /* ── Fonte picker: 2 colonne invece di 3 ── */
+  .fonte-picker { grid-template-columns: 1fr 1fr; }
+
+  /* ── Emoji grid: 5 colonne ── */
+  .emoji-grid { grid-template-columns: repeat(5, 1fr); }
+
+  /* ── cfg-row: wrappabile per configurazione output ── */
+  .cfg-row { flex-wrap: wrap; }
+
+  /* ── Ripasso form-row: colonna singola ── */
+  .ripasso-form-row { grid-template-columns: 1fr; }
+
+  /* ── Ripasso item: previeni overflow testo ── */
+  .ripasso-item2-nome { font-size: .85rem; }
+  .ripasso-meta { font-size: .72rem; }
+
+  /* ── Fullpage header: compatta ── */
+  .fp-header { padding: 10px 14px; }
+  .fp-title { font-size: .95rem; }
+  .fp-edit-btn { padding: 6px 10px; font-size: .78rem; }
+
+  /* ── Quiz: padding ridotti ── */
+  .quizm-opt { padding: 11px 12px; font-size: .88rem; min-height: 50px; }
+  .quizm-question { padding: 14px; font-size: .98rem; }
+  .quiz-opt { padding: 11px 12px; font-size: .88rem; }
+
+  /* ── Flashcard: padding ridotto ── */
+  .fc-face { padding: 24px 16px; }
+
+  /* ── Tools grid: gap più stretto ── */
+  .tools-grid { gap: 8px; }
+  .tool-card { padding: 12px 10px; }
+  .tool-name { font-size: .85rem; }
+  .tool-desc { font-size: .72rem; }
+
+  /* ── Chat: bolle adattive ── */
+  .chat-bubble { font-size: .87rem; padding: 10px 13px; max-width: 92%; }
+  .arg-chat-container { padding: 10px 12px 8px; }
+
+  /* ── Storico: preview non tronca testo ── */
+  .storico-preview { font-size: .8rem; }
+
+  /* ── Profilo: lista verticale, no elemento affiancato ── */
+  .profilo-token-row { flex-direction: row; font-size: .83rem; }
+  .profilo-scroll { padding: 12px 14px 32px; }
+  .profilo-user-card { padding: 12px 14px; }
+
+  /* ── Settings rows: padding mobile ── */
+  .settings-row { padding: 12px 14px; }
+  .settings-row-label { font-size: .88rem; }
+
+  /* ── Dialog: margini laterali ── */
+  .dialog-ov { padding: 12px; }
+  .dialog-box { padding: 22px 18px; border-radius: 20px; }
+
+  /* ── Sheet: padding laterale ridotto ── */
+  .sheet { padding: 22px 16px 28px; }
+
+  /* ── Fonte row: label troncata ── */
+  .fonte-name { font-size: .8rem; }
+  .fonte-preview { width: 36px; height: 36px; font-size: 1.1rem; }
+
+  /* ── Proposal cards upload: padding compatto ── */
+  .up-proposal-card { padding: 12px; }
+  .up-prop-name-input { font-size: .88rem; padding: 6px 10px; }
+
+  /* ── Map branches: no overflow ── */
+  .map-branches-row { gap: 6px; }
+  .map-branch { min-width: 110px; }
+
+  /* ── Token limit banner: full width ── */
+  .token-limit-banner { max-width: 100%; }
+
+  /* ── Notifica: centrata e compatta ── */
+  .notifica { font-size: .82rem; padding: 11px 16px; }
+}

@@ -19,7 +19,7 @@ function SubjectIcon({emoji,size=52}){
 }
 
 function LogoSVG({size=36}){
-  return <div className="logo-icon" style={{width:size,height:size,background:'linear-gradient(135deg,#0F0F2D,#1E1B4B)'}}><svg viewBox="0 0 58 58" width={size*.75} height={size*.75} xmlns="http://www.w3.org/2000/svg"><path d="M34 5 L16 31 L27 31 L24 53 L44 25 L32 25 Z" fill="#67E8F9" stroke="#A78BFA" strokeWidth="1.2"/></svg></div>
+  return <div className="logo-icon" style={{width:size,height:size,background:'linear-gradient(135deg,#8B1A12,#D4692A)'}}><svg viewBox="0 0 58 58" width={size*.75} height={size*.75} xmlns="http://www.w3.org/2000/svg"><path d="M34 5 L16 31 L27 31 L24 53 L44 25 L32 25 Z" fill="#FFFFFF" stroke="#FFE8D6" strokeWidth="1.2"/></svg></div>
 }
 function Brand({size='1.1rem'}){return <div className="brand-name" style={{fontSize:size}}>Flash<em>Bacon</em></div>}
 function Spinner(){return <div className="ai-spinner"/>}
@@ -266,8 +266,6 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   // Inline title editing
   const [editingArgTitle,setEditingArgTitle]=useState(false)
   const [argTitleVal,setArgTitleVal]=useState('')
-  const [editingMateriaTitle,setEditingMateriaTitle]=useState(false)
-  const [materiaTitleVal,setMaterialaTitleVal]=useState('')
 
   // Quiz-aperta one-at-a-time
   const [quizApertaIdx,setQuizApertaIdx]=useState(0)
@@ -505,7 +503,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   /* ── MATERIE ── */
   // Genera cover via Pollinations.ai (no API key richiesta)
   function pollinationsUrl(nome){
-    const prompt=encodeURIComponent(`${nome} academic study subject, dark background, minimal, abstract, professional, high quality`)
+    const prompt=encodeURIComponent(`${nome} academic study subject, clean minimal, soft light background, professional, high quality`)
     const seed=Math.abs(nome.split('').reduce((a,c)=>a+c.charCodeAt(0),0))%9999
     return `https://image.pollinations.ai/prompt/${prompt}?width=400&height=400&seed=${seed}&nologo=true&model=flux`
   }
@@ -841,7 +839,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
         finalPrompt=r.prompt_personalizzato?basePrompt+`\n\nFocus: ${r.prompt_personalizzato}`:basePrompt
       }
       const res=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:finalPrompt,images,textSources,urlSources,settings:{length:2},systemContext,fileNames,userEmail:utente?.email||''})})
-      if(!res.ok)return
+      if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.error||`AI ${res.status}`)}
       const quizResult=await readAIStream(res,null)
       const parsed=mode==='flashcard'?parseFC(quizResult):mode==='multipla'?parseQuiz(quizResult):parseOpenQuiz(quizResult)
       // Sostituisci sempre il quiz più recente (delete vecchio + insert nuovo)
@@ -871,12 +869,12 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       const prompt=buildQuizPromptDirect(r,cfg,mode)
       const systemContext=buildSystemContext()
       const res=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,images,textSources,urlSources,settings:{length:2},systemContext,fileNames,userEmail:utente?.email||''})})
-      if(!res.ok)return
+      if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.error||`AI ${res.status}`)}
       const quizResult=await readAIStream(res,null)
       // Save to storico for the argomento (Lab)
       await supabase.from('storico').insert({utente_email:utente.email,materia_id:r.materia_id,argomento_id:argId,tipo:mode==='multipla'?'quiz':'quiz-aperta',contenuto:quizResult})
       showAIDone('✅ Quiz ripasso generato e salvato nel Lab!')
-    }catch(e){console.warn('generateRipassoAndSave:',e.message)}
+    }catch(e){console.warn('generateRipassoAndSave:',e.message);toast('⚠️ Ripasso: '+e.message)}
   }
   async function deleteRipasso(id){
     await supabase.from('studio_pianificato').delete().eq('id',id)
@@ -1251,7 +1249,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
 
         {/* ─ CHAT ─ */}
         <div className={`av3-panel av3-chat${argTab==='chat'?' av3-active':''}`}>
-          <div className="av3-chat-msgs" ref={el=>{if(el)chatEndRef.current=el.lastElementChild}}>
+          <div className="av3-chat-msgs">
             {chatMsgs.length===0&&<div className="av3-empty"><svg width="28" height="28" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg><span>Nessun messaggio</span></div>}
             {chatMsgs.map((m,i)=>(
               <div key={i} className={`av3-bubble av3-bubble-${m.role}`}>

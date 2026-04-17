@@ -941,15 +941,21 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       setFullpage({title:'Generazione quiz ripasso…',type:'loading',data:null})
       const onProg=msg=>setFullpage(fp=>fp?{...fp,title:msg}:fp)
       callAI(buildQuizPromptDirect(r,cfg,mode),{length:2},onProg).then(async result=>{
-        await saveStorico(mode==='multipla'?'quiz':'quiz-aperta',result)
+        const parsed=mode==='flashcard'?parseFC(result):mode==='multipla'?parseQuiz(result):parseOpenQuiz(result)
+        try{
+          await supabase.from('ripassi_quiz').delete().eq('ripasso_id',r.id)
+          const{data:qRow}=await supabase.from('ripassi_quiz').insert({ripasso_id:r.id,domande:parsed,modalita:mode}).select().single()
+          if(qRow)setRipassiQuiz(p=>({...p,[r.id]:qRow}))
+        }catch(e){console.warn('save ripassi_quiz:',e.message)}
         if(mode==='multipla'){
-          const p=parseQuiz(result)
-          setQuizData(p);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([])
-          setFullpage({title:'Quiz Ripasso',type:'quiz',data:p})
+          setQuizData(parsed);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([])
+          setFullpage({title:'Quiz Ripasso',type:'quiz',data:parsed})
+        }else if(mode==='flashcard'){
+          setFcCards(parsed);setFcIdx(0);setFcFlipped(false)
+          setFullpage({title:'Flashcard Ripasso',type:'fc',data:parsed})
         }else{
-          const qs=parseOpenQuiz(result)
-          setQuizData(qs);setQuizApertaIdx(0);setOpenAnswers({});setOpenFeedback({});setOpenFinalEval(null)
-          setFullpage({title:'Quiz Aperta Ripasso',type:'quiz-aperta',data:qs})
+          setQuizData(parsed);setQuizApertaIdx(0);setOpenAnswers({});setOpenFeedback({});setOpenFinalEval(null)
+          setFullpage({title:'Quiz Aperta Ripasso',type:'quiz-aperta',data:parsed})
         }
       }).catch(e=>{setFullpage({title:'Errore',type:'text',data:'❌ '+e.message})})
     },800)
@@ -1018,7 +1024,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   const curArgomento=argomenti.find(a=>a.id===curArgId)
   const activeProvider=providers.find(p=>p.attivo)
   const argFonti=fonti.filter(f=>f.argomento_id===curArgId||f.argomento_id==null)
-  const argStorico=storico.filter(s=>s.argomento_id===curArgId)
+  const argStorico=storico.filter(s=>s.argomento_id===curArgId&&s.tipo!=='chat')
   const aiBlocked=tokenUsage.tokenLimit>0&&tokenUsage.tokensUsed>=tokenUsage.tokenLimit
 
   /* ══════════════════════════════════════════
@@ -1368,11 +1374,9 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
             {argStorico.map(s=>{
               const isSel=selStorico.has(s.id)
               const isStarred=s.stellato||false
-              const STLABEL={riassunto:'📝 Riassunto',mappa:'🗺️ Mappa',flashcards:'🃏 Flashcards',quiz:'❓ Quiz','quiz-aperta':'✍️ Quiz Aperta',punti:'🎯 Punti chiave',chat:'💬 Chat'}
+              const STLABEL={riassunto:'📝 Riassunto',mappa:'🗺️ Mappa',flashcards:'🃏 Flashcards',quiz:'❓ Quiz','quiz-aperta':'✍️ Quiz Aperta',punti:'🎯 Punti chiave'}
               const label=STLABEL[s.tipo]||s.tipo
-              const preview=s.tipo==='chat'
-                ?(s.contenuto.split('\n').find(l=>l.startsWith('Tu: '))?.slice(4)||'Conversazione')
-                :cleanText(s.contenuto).substring(0,60)
+              const preview=cleanText(s.contenuto).substring(0,60)
               return(
                 <div key={s.id} className={`av3-storico-row${isSel?' sel':''}`}
                   onClick={()=>{if(selStorico.size>0){const n=new Set(selStorico);n.has(s.id)?n.delete(s.id):n.add(s.id);setSelStorico(n);return}openStorico(s)}}

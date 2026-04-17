@@ -443,7 +443,7 @@ body {
 @media (min-width: 1024px) {
   .home-layout2 { flex-direction: row; }
   .home-col-left {
-    width: 380px; flex: none; flex-shrink: 0;
+    width: 67vw; flex: none; flex-shrink: 0;
     border-right: 1px solid var(--border);
     padding-bottom: 16px;
   }

@@ -425,6 +425,18 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       setArgomenti(args||[])
       const ripassiData=await loadRipassi(u.email)
       if(ripassiData?.length)await loadRipassiQuiz(ripassiData)
+      // Deep-link from push notification: ?screen=ripasso&ripasso=<id>
+      const qp=new URLSearchParams(window.location.search)
+      const ripParam=qp.get('ripasso')
+      if(ripParam&&ripassiData?.length){
+        const target=ripassiData.find(r=>r.id===ripParam)
+        if(target){
+          setScreen('ripasso')
+          history.replaceState(null,'',window.location.pathname)
+          setTimeout(()=>openRipassoQuizFromTable(target),0)
+          return
+        }
+      }
       loadTokenUsage(u.email)
       const isNew=!localStorage.getItem('fb_onb_'+u.id)
       if(isNew){setOnb(true);setOnbStep(0)}
@@ -801,6 +813,37 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   }
 
   /* ── RIPASSO V2 ── */
+  // ── Web Push helpers ─────────────────────────────────────────
+  async function registerPushSubscription(ripassoId){
+    try{
+      if(typeof window==='undefined')return null
+      if(!('serviceWorker' in navigator)||!('PushManager' in window)){
+        console.warn('Push non supportato su questo browser');return null
+      }
+      const vapid=import.meta.env.VITE_VAPID_PUBLIC_KEY
+      if(!vapid){console.warn('VITE_VAPID_PUBLIC_KEY non configurata');return null}
+      const reg=await navigator.serviceWorker.register('/sw.js')
+      await navigator.serviceWorker.ready
+      if(Notification.permission==='default'){
+        const p=await Notification.requestPermission()
+        if(p!=='granted'){toast('Permesso notifiche negato');return null}
+      }
+      if(Notification.permission!=='granted'){return null}
+      const existing=await reg.pushManager.getSubscription()
+      const sub=existing||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:urlBase64ToUint8Array(vapid)})
+      const res=await fetch('/api/push/subscribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ripassoId,subscription:sub.toJSON(),utenteEmail:utente?.email||null})})
+      if(!res.ok){const e=await res.json().catch(()=>({}));console.warn('subscribe error:',e.error||res.status)}
+      return sub
+    }catch(e){console.warn('registerPushSubscription:',e.message);return null}
+  }
+  function urlBase64ToUint8Array(b64){
+    const pad='='.repeat((4-b64.length%4)%4)
+    const base=(b64+pad).replace(/-/g,'+').replace(/_/g,'/')
+    const raw=atob(base);const out=new Uint8Array(raw.length)
+    for(let i=0;i<raw.length;i++)out[i]=raw.charCodeAt(i)
+    return out
+  }
+
   function openNewRipassoForm(){
     setREditId(null);setRNome('');setRMat(null);setRArgs([])
     setRFreqType('D');setRDay('lun');setRDayOfMonth(1);setRCustomDays([])
@@ -831,20 +874,28 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     return 'giornaliero'
   }
   async function openRipassoQuizFromTable(r){
-    // Always load fresh from Supabase — no navigation, no generation.
+    // STRICT: load from Supabase by ripasso_id, render inline, zero navigation.
     const{data:qRow,error}=await supabase.from('ripassi_quiz').select('*').eq('ripasso_id',r.id).order('created_at',{ascending:false}).limit(1).maybeSingle()
     if(error){toast('⚠️ Errore caricamento quiz: '+error.message);return}
-    if(!qRow||!qRow.domande||!qRow.domande.length){toast('Quiz non ancora pronto per questo ripasso');return}
+    if(!qRow||!Array.isArray(qRow.domande)||!qRow.domande.length){toast('Quiz non ancora pronto per questo ripasso');return}
     setRipassiQuiz(p=>({...p,[r.id]:qRow}))
-    const mode=qRow.modalita||r.quiz_modalita||'multipla'
+    const raw=qRow.modalita||r.quiz_modalita||'multipla'
+    const mode=raw==='flashcard'?'flashcard':raw==='multipla'?'multipla':'aperta'
     const domande=qRow.domande
-    setRShowForm(false);setREditId(null)
+    // Ensure no other overlay/form/fullpage is visible.
+    setFullpage(null);setRShowForm(false);setREditId(null)
     if(mode==='flashcard'){
       setFcCards(domande);setFcIdx(0);setFcFlipped(false)
+      setQuizData([]);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([])
+      setQuizApertaIdx(0);setOpenAnswers({});setOpenFeedback({});setOpenFinalEval(null)
     } else if(mode==='multipla'){
       setQuizData(domande);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([])
+      setFcCards([]);setFcIdx(0);setFcFlipped(false)
+      setQuizApertaIdx(0);setOpenAnswers({});setOpenFeedback({});setOpenFinalEval(null)
     }else{
       setQuizData(domande);setQuizApertaIdx(0);setOpenAnswers({});setOpenFeedback({});setOpenFinalEval(null)
+      setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([])
+      setFcCards([]);setFcIdx(0);setFcFlipped(false)
     }
     setRRunning({ripasso:r,mode,domande})
   }
@@ -856,7 +907,6 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   }
   async function saveRipasso(){
     if(!rMat){toast('Seleziona una materia');return}
-    if('Notification' in window&&Notification.permission==='default') await Notification.requestPermission()
     const argomentoId=rArgs.length===1?rArgs[0]:null
     const fields={nome:rNome||null,materia_id:rMat,argomento_id:argomentoId,frequenza:serializeFreq(),orario:rOrario,difficolta:2,quiz_num:rQNum,quiz_modalita:rQMode,prompt_personalizzato:rPrompt||null}
     let ripassoRow
@@ -870,6 +920,8 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     toast(rEditId?'Ripasso aggiornato ✓':'Ripasso pianificato ✓')
     setRShowForm(false);setREditId(null)
     if(ripassoRow){
+      // Register this device for push so the server-side cron can reach it.
+      registerPushSubscription(ripassoRow.id)
       setRipassiGeneratingId(ripassoRow.id)
       setRipassiGenerating(true)
       try{await generateRipassoAndSaveToTable(ripassoRow)}

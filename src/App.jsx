@@ -1,9 +1,42 @@
 import React, { useState, useEffect, useRef } from 'react'
+import katex from 'katex'
+import 'katex/dist/katex.min.css'
 import { supabase } from './supabase.js'
 import { EMOJIS, PROVIDERS_DEF, ONB, EXT_ICON, SUBJ } from './utils/constants.js'
 import { toast, showAIDone, fmtDate, compressImg, getExt, isImgExt, cleanText } from './utils/helpers.js'
 import { parseQuiz, parseFC, parseMappa, parseRiassunto, parseOpenQuiz } from './utils/parsers.js'
 import UploadAIModal from './components/UploadAIModal.jsx'
+
+function escapeHtml(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')
+}
+
+function renderKatexSegment(tex,displayMode){
+  try{
+    return katex.renderToString(tex,{displayMode,throwOnError:false,output:'html',strict:'ignore'})
+  }catch{
+    return (displayMode?'<div class="katex-error">':'<span class="katex-error">')+escapeHtml(tex)+(displayMode?'</div>':'</span>')
+  }
+}
+
+// Parse a message with \( ... \) inline and \[ ... \] block LaTeX,
+// plus $$...$$ block and $...$ inline as common variants. Returns safe HTML.
+function renderMathHtml(raw){
+  const src=cleanText(raw||'')
+  if(!src)return ''
+  const re=/\\\[([\s\S]+?)\\\]|\\\(([\s\S]+?)\\\)|\$\$([\s\S]+?)\$\$|\$([^\n$]+?)\$/g
+  let out='',last=0,m
+  while((m=re.exec(src))!==null){
+    out+=escapeHtml(src.slice(last,m.index)).replace(/\n/g,'<br>')
+    if(m[1]!==undefined)      out+=renderKatexSegment(m[1],true)
+    else if(m[2]!==undefined) out+=renderKatexSegment(m[2],false)
+    else if(m[3]!==undefined) out+=renderKatexSegment(m[3],true)
+    else if(m[4]!==undefined) out+=renderKatexSegment(m[4],false)
+    last=m.index+m[0].length
+  }
+  out+=escapeHtml(src.slice(last)).replace(/\n/g,'<br>')
+  return out
+}
 
 
 function SubjectIcon({emoji,size=52}){
@@ -1289,7 +1322,9 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
             {chatMsgs.map((m,i)=>(
               <div key={i} className={`av3-bubble av3-bubble-${m.role}`}>
                 <div className="av3-bubble-sender">{m.role==='user'?'Tu':'AI'}</div>
-                <div className="av3-bubble-text">{m.role==='ai'?cleanText(m.content):m.content}</div>
+                {m.role==='ai'
+                  ?<div className="av3-bubble-text" dangerouslySetInnerHTML={{__html:renderMathHtml(m.content)}}/>
+                  :<div className="av3-bubble-text">{m.content}</div>}
               </div>
             ))}
             {chatLoading&&<div className="av3-bubble av3-bubble-ai"><div className="av3-bubble-sender">AI</div><div style={{display:'flex',gap:6,alignItems:'center'}}><Spinner/><span style={{fontSize:'.83rem',color:'#888'}}>Sto pensando…</span></div></div>}

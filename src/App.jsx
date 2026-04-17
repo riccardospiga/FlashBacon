@@ -248,6 +248,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   const [ripassiGenerating,setRipassiGenerating]=useState(false)
   const [ripassiGeneratingId,setRipassiGeneratingId]=useState(null)
   const [ripassiQuiz,setRipassiQuiz]=useState({}) // ripasso_id -> quiz row
+  const [rRunning,setRRunning]=useState(null) // {ripasso, mode, domande} — inline quiz runner in Ripasso screen
   // Materia image search
   const [matImgQuery,setMatImgQuery]=useState('')
   const [matImgResults,setMatImgResults]=useState([])
@@ -797,23 +798,28 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     return 'giornaliero'
   }
   async function openRipassoQuizFromTable(r){
-    const quiz=ripassiQuiz[r.id]
-    const argId=r.argomento_id||(argomenti.find(a=>a.materia_id===r.materia_id)?.id)
-    setCurMateriaId(r.materia_id);setCurArgId(argId)
-    if(!quiz){startRipassoQuiz(r);return}
-    const mode=quiz.modalita||r.quiz_modalita||'multipla'
-    const domande=quiz.domande||[]
-    if(!domande.length){startRipassoQuiz(r);return}
+    // Always load fresh from Supabase — no navigation, no generation.
+    const{data:qRow,error}=await supabase.from('ripassi_quiz').select('*').eq('ripasso_id',r.id).order('created_at',{ascending:false}).limit(1).maybeSingle()
+    if(error){toast('⚠️ Errore caricamento quiz: '+error.message);return}
+    if(!qRow||!qRow.domande||!qRow.domande.length){toast('Quiz non ancora pronto per questo ripasso');return}
+    setRipassiQuiz(p=>({...p,[r.id]:qRow}))
+    const mode=qRow.modalita||r.quiz_modalita||'multipla'
+    const domande=qRow.domande
+    setRShowForm(false);setREditId(null)
     if(mode==='flashcard'){
       setFcCards(domande);setFcIdx(0);setFcFlipped(false)
-      setFullpage({title:'Flashcard Ripasso',type:'fc',data:domande})
     } else if(mode==='multipla'){
       setQuizData(domande);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([])
-      setFullpage({title:'Quiz Ripasso',type:'quiz',data:domande})
     }else{
       setQuizData(domande);setQuizApertaIdx(0);setOpenAnswers({});setOpenFeedback({});setOpenFinalEval(null)
-      setFullpage({title:'Quiz Aperta Ripasso',type:'quiz-aperta',data:domande})
     }
+    setRRunning({ripasso:r,mode,domande})
+  }
+  function closeRipassoRunner(){
+    setRRunning(null)
+    setQuizData([]);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([])
+    setQuizApertaIdx(0);setOpenAnswers({});setOpenFeedback({});setOpenFinalEval(null)
+    setFcCards([]);setFcIdx(0);setFcFlipped(false)
   }
   async function saveRipasso(){
     if(!rMat){toast('Seleziona una materia');return}
@@ -1601,7 +1607,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       <div className="rip-split">
 
         {/* Colonna sinistra (~35%): lista ripassi */}
-        <aside className={`rip-list-col${rShowForm?' rip-hide-sm':''}`}>
+        <aside className={`rip-list-col${rShowForm||rRunning?' rip-hide-sm':''}`}>
           <div className="rip-list-hdr">I tuoi ripassi</div>
           {ripassi.length===0
             ? <div className="rip-empty">Nessun ripasso pianificato.<br/>Tocca il + per crearne uno.</div>
@@ -1619,7 +1625,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
                   else if(r.frequenza?.startsWith('custom:'))freqLbl=r.frequenza.slice(7).split(',').map(d=>FDOW[d]||d).join(', ')
                   const tipoLbl=r.quiz_modalita==='flashcard'?'Cards':'Quiz'
                   return(
-                    <div key={r.id} className={`rip-card${rEditId===r.id&&rShowForm?' rip-card-active':''}`}>
+                    <div key={r.id} className={`rip-card${(rEditId===r.id&&rShowForm)||rRunning?.ripasso?.id===r.id?' rip-card-active':''}`}>
                       <div className="rip-card-body" onClick={()=>openRipassoQuizFromTable(r)}>
                         <div className="rip-card-title">Ripasso su {mat?.nome||'—'}</div>
                         <div className="rip-card-meta">{freqLbl} · {r.orario} · {r.quiz_num} {tipoLbl}</div>
@@ -1640,9 +1646,109 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
           }
         </aside>
 
-        {/* Colonna destra (~65%): form nuovo/modifica */}
-        <section className={`rip-form-col${!rShowForm?' rip-hide-sm':''}`}>
-          {rShowForm?(<>
+        {/* Colonna destra (~65%): runner quiz inline | form nuovo/modifica | empty */}
+        <section className={`rip-form-col${!rShowForm&&!rRunning?' rip-hide-sm':''}`}>
+          {rRunning?(<>
+            <div className="rip-form-hdr">
+              <h2>{rRunning.ripasso.nome||('Ripasso su '+(materie.find(m=>m.id===rRunning.ripasso.materia_id)?.nome||'—'))}</h2>
+              <button className="rip-close-btn" onClick={closeRipassoRunner} title="Chiudi">✕</button>
+            </div>
+
+            {rRunning.mode==='multipla'&&(
+              quizIdx>=quizData.length?(
+                <div className="quiz-score">
+                  <div className="quiz-score-circle">{quizScore}/{quizData.length}</div>
+                  <h2 style={{fontFamily:'Syne,sans-serif',fontWeight:800,fontSize:'1.3rem'}}>Quiz completato!</h2>
+                  <p style={{color:'var(--muted)',marginBottom:quizWrong.length?16:0}}>
+                    Hai risposto correttamente a <strong>{quizScore}</strong> su {quizData.length}.
+                  </p>
+                  {quizWrong.length>0&&<div className="quiz-wrong-list">
+                    <p className="quiz-wrong-title">❌ Risposte errate ({quizWrong.length})</p>
+                    {quizWrong.map(({qi,q})=>(
+                      <div key={qi} className="quiz-wrong-item">
+                        <div className="quiz-wrong-q">{cleanText(q.dom||q.domanda||'')}</div>
+                        <div className="quiz-wrong-ans">✓ {cleanText((q.opts||q.opzioni||[])[q.cor??q.corretta??0]||'')}</div>
+                      </div>
+                    ))}
+                  </div>}
+                  <button className="btn-primary" style={{maxWidth:220,marginTop:16}} onClick={()=>{setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([])}}>Riprova</button>
+                </div>
+              ):(
+                <div className="quizm-fit">
+                  <div className="quiz-progressbar-wrap"><div className="quiz-progressbar" style={{width:`${(quizIdx/quizData.length)*100}%`}}/></div>
+                  <span className="quiz-counter">{quizIdx+1} / {quizData.length}</span>
+                  <QuizErrorBoundary raw={''}>
+                    <QuizQ key={quizIdx} q={quizData[quizIdx]||{dom:'',opts:[],cor:0,spieg:''}} idx={quizIdx} total={quizData.length}
+                      onNext={()=>{setQuizIdx(i=>i+1);setQuizAnswered(false)}}
+                      onCorrect={()=>setQuizScore(s=>s+1)}
+                      onWrong={q=>setQuizWrong(p=>[...p,{qi:quizIdx,q}])}/>
+                  </QuizErrorBoundary>
+                </div>
+              )
+            )}
+
+            {rRunning.mode==='aperta'&&quizData&&quizData.length>0&&(
+              quizApertaIdx>=quizData.length?(
+                <div className="quiz-score">
+                  <div className="quiz-score-circle" style={{fontSize:'1.2rem'}}>✓</div>
+                  <h2 style={{fontFamily:'Syne,sans-serif',fontWeight:800,fontSize:'1.3rem'}}>Completato!</h2>
+                  <p style={{color:'var(--muted)',marginBottom:16}}>Hai risposto a tutte le {quizData.length} domande.</p>
+                  {!openFinalEval?(
+                    <button className="btn-primary" style={{maxWidth:260}} onClick={evalAllQuiz}>🤖 Valuta tutto con AI</button>
+                  ):openFinalEval.loading?(
+                    <div style={{display:'flex',gap:10,alignItems:'center',color:'var(--muted)',fontSize:'.88rem'}}><Spinner/> Valutazione in corso…</div>
+                  ):(
+                    <div className="quiz-final-eval">
+                      <p className="quiz-final-eval-title">📊 Valutazione AI</p>
+                      <pre className="quiz-final-eval-text">{cleanText(openFinalEval.text)}</pre>
+                    </div>
+                  )}
+                  <button className="btn-secondary" style={{marginTop:8,maxWidth:220}} onClick={()=>{setQuizApertaIdx(0);setOpenAnswers({});setOpenFeedback({});setOpenFinalEval(null)}}>Riprova</button>
+                </div>
+              ):(
+                <div className="quiz-fit">
+                  <div className="quiz-progressbar-wrap"><div className="quiz-progressbar" style={{width:`${(quizApertaIdx/quizData.length)*100}%`}}/></div>
+                  <span className="quiz-counter">{quizApertaIdx+1} / {quizData.length}</span>
+                  <div key={quizApertaIdx} className="quiz-card quiz-card-anim" style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column'}}>
+                    <div className="quiz-q">{cleanText(quizData[quizApertaIdx]?.dom||quizData[quizApertaIdx]?.domanda||'')}</div>
+                    <textarea className="quiz-open-input" placeholder="Scrivi la tua risposta…"
+                      value={openAnswers[quizApertaIdx]||''}
+                      onChange={e=>setOpenAnswers(p=>({...p,[quizApertaIdx]:e.target.value}))}/>
+                    {openFeedback[quizApertaIdx]?.loading&&(
+                      <div style={{display:'flex',gap:8,alignItems:'center',fontSize:'.84rem',color:'var(--muted)',marginBottom:10}}><Spinner/>Valutazione AI…</div>
+                    )}
+                    {openFeedback[quizApertaIdx]?.text&&(
+                      <div className="quiz-ai-feedback">{cleanText(openFeedback[quizApertaIdx].text)}</div>
+                    )}
+                    {!openFeedback[quizApertaIdx]&&(openAnswers[quizApertaIdx]||'').trim()&&(
+                      <button className="btn-sm primary" style={{marginBottom:10}} onClick={()=>evalQuizOpen(quizApertaIdx)}>✓ Valuta risposta</button>
+                    )}
+                    <button className="btn-primary" style={{marginTop:'auto',paddingTop:14}} onClick={()=>setQuizApertaIdx(i=>i+1)}>
+                      {quizApertaIdx+1<quizData.length?'Prossima →':'Vedi risultato'}
+                    </button>
+                  </div>
+                </div>
+              )
+            )}
+
+            {rRunning.mode==='flashcard'&&fcCards.length>0&&(
+              <div className="fc-wrap-fit">
+                <div className="fc-progress">{fcCards.map((_,i)=><div key={i} className={`fc-dot ${i<=fcIdx?'seen':''}`}/>)}</div>
+                <div className="fc-scene" onClick={()=>setFcFlipped(f=>!f)} style={{flex:1,display:'flex',flexDirection:'column'}}>
+                  <div className="fc-card" style={{transform:fcFlipped?'rotateY(180deg)':'none',flex:1,position:'relative'}}>
+                    <div className="fc-face fc-front"><div className="fc-label">FRONTE</div><div className="fc-text">{cleanText(fcCards[fcIdx]?.front||'')}</div></div>
+                    <div className="fc-face fc-back"><div className="fc-label">RETRO</div><div className="fc-text">{cleanText(fcCards[fcIdx]?.back||'')}</div></div>
+                  </div>
+                </div>
+                <div className="fc-hint">Tocca per girare</div>
+                <div className="fc-nav">
+                  <button onClick={()=>{setFcIdx(i=>Math.max(0,i-1));setFcFlipped(false)}} disabled={fcIdx===0}>← Prec.</button>
+                  <span className="fc-counter">{fcIdx+1} / {fcCards.length}</span>
+                  <button onClick={()=>{setFcIdx(i=>Math.min(fcCards.length-1,i+1));setFcFlipped(false)}} disabled={fcIdx===fcCards.length-1}>Succ. →</button>
+                </div>
+              </div>
+            )}
+          </>):rShowForm?(<>
             <div className="rip-form-hdr">
               <h2>{rEditId?'Modifica ripasso':'Nuovo ripasso'}</h2>
               {rEditId&&<button className="rip-close-btn" onClick={()=>{setRShowForm(false);setREditId(null)}}>✕</button>}
@@ -1758,9 +1864,9 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
 
       </div>
 
-      <button className="fab-diamond rip-fab" onClick={openNewRipassoForm} title="Nuovo ripasso">
+      {!rRunning&&<button className="fab-diamond rip-fab" onClick={openNewRipassoForm} title="Nuovo ripasso">
         <span className="fab-diamond-inner">+</span>
-      </button>
+      </button>}
     </div>}
 
     {/* FULLPAGE MODAL */}

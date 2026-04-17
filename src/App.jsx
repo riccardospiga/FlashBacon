@@ -223,10 +223,12 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   const chatEndRef=useRef(null)
 
   // Ripasso wizard
-  const [rStep,setRStep]=useState(1)
   const [rMat,setRMat]=useState(null)
   const [rArgs,setRArgs]=useState([])  // empty = tutti
-  const [rFreq,setRFreq]=useState('lun') // 'giornaliero' | 'lun'...'dom'
+  const [rFreqType,setRFreqType]=useState('D') // 'D'|'W'|'M'|'C'
+  const [rDay,setRDay]=useState('lun')          // used when W
+  const [rDayOfMonth,setRDayOfMonth]=useState(1) // used when M
+  const [rCustomDays,setRCustomDays]=useState([])// used when C
   const [rOrario,setROrario]=useState('08:00')
   const [rQNum,setRQNum]=useState(10)
   const [rQMode,setRQMode]=useState('multipla')
@@ -334,8 +336,15 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       const now=new Date()
       const hhmm=now.getHours().toString().padStart(2,'0')+':'+now.getMinutes().toString().padStart(2,'0')
       const DOW=['dom','lun','mar','mer','gio','ven','sab'][now.getDay()]
+      const DOM=now.getDate()
       ripassi.forEach(r=>{
-        const freqOk=r.frequenza==='giornaliero'||r.frequenza===DOW||r.frequenza==='settimanale'
+        const f=r.frequenza||''
+        let freqOk=false
+        if(f==='giornaliero')freqOk=true
+        else if(f==='settimanale')freqOk=DOW==='lun'
+        else if(f===DOW)freqOk=true
+        else if(f.startsWith('mensile-'))freqOk=Number(f.slice(8))===DOM
+        else if(f.startsWith('custom:'))freqOk=f.slice(7).split(',').includes(DOW)
         if(r.orario===hhmm&&freqOk){
           const mat=materie.find(m=>m.id===r.materia_id)
           // Push notification (device-level)
@@ -760,18 +769,32 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   /* ── RIPASSO V2 ── */
   function openNewRipassoForm(){
     setREditId(null);setRNome('');setRMat(null);setRArgs([])
-    setRFreq('settimanale');setROrario('08:00');setRQNum(10);setRQMode('multipla');setRPrompt('')
+    setRFreqType('D');setRDay('lun');setRDayOfMonth(1);setRCustomDays([])
+    setROrario('08:00');setRQNum(10);setRQMode('multipla');setRPrompt('')
     setRShowForm(true)
   }
   function editRipasso(r){
     setREditId(r.id);setRNome(r.nome||'');setRMat(r.materia_id)
     setRArgs(r.argomento_id?[r.argomento_id]:[])
-    // Normalize legacy frequency values
-    const freq=r.frequenza==='settimanale'?'lun':r.frequenza==='personalizzato'?'lun':(r.frequenza||'lun')
-    setRFreq(freq);setROrario(r.orario||'08:00')
+    const f=r.frequenza||'giornaliero'
+    const DAYS=['lun','mar','mer','gio','ven','sab','dom']
+    if(f==='giornaliero'){setRFreqType('D')}
+    else if(DAYS.includes(f)){setRFreqType('W');setRDay(f)}
+    else if(f==='settimanale'){setRFreqType('W');setRDay('lun')}
+    else if(f.startsWith('mensile-')){setRFreqType('M');setRDayOfMonth(Number(f.slice(8))||1)}
+    else if(f.startsWith('custom:')){setRFreqType('C');setRCustomDays(f.slice(7).split(',').filter(Boolean))}
+    else{setRFreqType('D')}
+    setROrario(r.orario||'08:00')
     setRQNum(r.quiz_num||10);setRQMode(r.quiz_modalita||'multipla')
     setRPrompt(r.prompt_personalizzato||'')
     loadArgomenti(r.materia_id);setRShowForm(true)
+  }
+  function serializeFreq(){
+    if(rFreqType==='D')return 'giornaliero'
+    if(rFreqType==='W')return rDay||'lun'
+    if(rFreqType==='M')return 'mensile-'+String(rDayOfMonth||1)
+    if(rFreqType==='C'){const d=rCustomDays.length?rCustomDays:['lun'];return 'custom:'+d.join(',')}
+    return 'giornaliero'
   }
   async function openRipassoQuizFromTable(r){
     const quiz=ripassiQuiz[r.id]
@@ -796,7 +819,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     if(!rMat){toast('Seleziona una materia');return}
     if('Notification' in window&&Notification.permission==='default') await Notification.requestPermission()
     const argomentoId=rArgs.length===1?rArgs[0]:null
-    const fields={nome:rNome||null,materia_id:rMat,argomento_id:argomentoId,frequenza:rFreq,orario:rOrario,difficolta:2,quiz_num:rQNum,quiz_modalita:rQMode,prompt_personalizzato:rPrompt||null}
+    const fields={nome:rNome||null,materia_id:rMat,argomento_id:argomentoId,frequenza:serializeFreq(),orario:rOrario,difficolta:2,quiz_num:rQNum,quiz_modalita:rQMode,prompt_personalizzato:rPrompt||null}
     let ripassoRow
     if(rEditId){
       const{data}=await supabase.from('studio_pianificato').update(fields).eq('id',rEditId).select().single()
@@ -1395,89 +1418,61 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     {/* PROFILO */}
     {screen==='profilo'&&<div className="screen anim profilo-screen">
       <AppHeader title="Profilo" onBack={()=>navTo('home')} backLabel="← Home"/>
-      <div className="profilo-scroll">
+      <div className="prof-scroll">
 
-        <div className="profilo-user-card">
-          <div className="avatar" style={{width:52,height:52,fontSize:'1.3rem',flexShrink:0}}>{utente?.nome?.[0]?.toUpperCase()||'?'}</div>
-          <div style={{flex:1,minWidth:0}}>
-            <div className="profilo-name" style={{marginBottom:2}}>{utente?.nome}</div>
-            <div className="profilo-email">{utente?.email}</div>
+        <div className="prof-hero">
+          <div className="prof-avatar">{utente?.nome?.[0]?.toUpperCase()||'?'}</div>
+          <div className="prof-hero-info">
+            <div className="prof-hero-name">{utente?.nome||'Utente'}</div>
+            <div className="prof-hero-email">{utente?.email}</div>
           </div>
-          <div className={`profilo-plan-badge${utente?.ruolo==='owner'?' pro':''}`}>
+          <div className={`prof-badge${utente?.ruolo==='owner'?' pro':''}`}>
             {utente?.ruolo==='owner'?'Pro':'Gratis'}
           </div>
         </div>
 
-        {tokenUsage.tokenLimit>0&&<div className="settings-card">
-          <div className="settings-card-label">Utilizzo AI</div>
-          <div className="profilo-token-row">
-            <span>{tokenUsage.tokensUsed.toLocaleString('it')} / {tokenUsage.tokenLimit.toLocaleString('it')}</span>
-            <span style={{color:aiBlocked?'#ef4444':'var(--muted)'}}>{Math.round(tokenUsage.tokensUsed/tokenUsage.tokenLimit*100)}%</span>
-          </div>
-          <div className="profilo-token-bar-track" style={{marginTop:6}}>
-            <div className="profilo-token-bar-fill" style={{width:`${Math.min(100,Math.round(tokenUsage.tokensUsed/tokenUsage.tokenLimit*100))}%`,background:aiBlocked?'#ef4444':'var(--accent)'}}/>
-          </div>
-          {tokenUsage.tokenResetDate&&<div style={{fontSize:'.72rem',color:'var(--muted)',marginTop:6}}>Reset il {tokenUsage.tokenResetDate}</div>}
-        </div>}
-
-        <div className="settings-card">
-          <div className="settings-card-label">Impostazioni AI</div>
-          <div className="cfg-row">
-            <span className="cfg-label">Stile</span>
-            <div className="cfg-btns">
-              {[['default','Predefinita'],['learning','Apprendimento'],['custom','Custom']].map(([k,l])=>(
-                <button key={k} className={`cfg-btn${promptMode.mode===k?' active':''}`}
-                  onClick={()=>{const v={...promptMode,mode:k};setPromptMode(v);saveSettings({chatLength,promptMode:v,outputCfg})}}>{l}</button>
-              ))}
-            </div>
-          </div>
-          {promptMode.mode==='custom'&&(
-            <textarea className="prompt-custom-input" style={{marginTop:8}}
-              placeholder="Es: Rispondimi come un professore, usa esempi pratici…"
-              value={promptMode.customPrompt||''}
-              onChange={e=>{const v={...promptMode,customPrompt:e.target.value};setPromptMode(v);saveSettings({chatLength,promptMode:v,outputCfg})}}/>
+        <div className="prof-list">
+          <button className="prof-row" onClick={()=>setScreen('impostazioni')}>
+            <span className="prof-row-icon">🤖</span>
+            <span className="prof-row-label">Mod AI</span>
+            <span className="prof-row-arrow">›</span>
+          </button>
+          <button className="prof-row" onClick={()=>{setGuidaSearch('');setScreen('guida')}}>
+            <span className="prof-row-icon">📖</span>
+            <span className="prof-row-label">Guida</span>
+            <span className="prof-row-arrow">›</span>
+          </button>
+          {utente?.is_admin&&(
+            <button className="prof-row" onClick={()=>{loadProviders();setScreen('admin')}}>
+              <span className="prof-row-icon">⚙️</span>
+              <span className="prof-row-label">Pannello Admin</span>
+              <span className="prof-row-arrow">›</span>
+            </button>
           )}
-          <div className="cfg-row" style={{marginTop:10}}>
-            <span className="cfg-label">Lunghezza</span>
-            <div className="cfg-btns">
-              {[['Breve',1],['Media',2],['Lunga',3]].map(([l,v])=>(
-                <button key={v} className={`cfg-btn${chatLength===v?' active':''}`}
-                  onClick={()=>{setChatLength(v);saveSettings({chatLength:v,promptMode,outputCfg})}}>{l}</button>
-              ))}
-            </div>
-          </div>
         </div>
 
-        <div className="settings-section">
-          <div className="settings-row" onClick={()=>{setGuidaSearch('');setScreen('guida')}}>
-            <span className="settings-row-label">Guida FlashBacon</span><span className="settings-row-icon">›</span>
-          </div>
-          {utente?.is_admin&&<div className="settings-row" onClick={()=>{loadProviders();setScreen('admin')}}>
-            <span className="settings-row-label">Pannello Admin</span><span className="settings-row-icon">›</span>
-          </div>}
+        <div className="prof-footer">
+          <button className="prof-action prof-logout" onClick={doLogout}>Esci</button>
+          {deleteConfirmStep===0&&(
+            <button className="prof-action prof-delete" onClick={()=>setDeleteConfirmStep(1)}>Elimina account</button>
+          )}
+          {deleteConfirmStep===1&&(
+            <div className="prof-delete-confirm">
+              <p>Sei sicuro? Digita <strong>ELIMINA</strong> per confermare. Tutti i dati verranno cancellati.</p>
+              <input className="rip-input" value={deleteConfirmText}
+                onChange={e=>setDeleteConfirmText(e.target.value)}
+                placeholder="ELIMINA" autoFocus/>
+              <div className="prof-delete-btns">
+                <button className="prof-action" onClick={()=>{setDeleteConfirmStep(0);setDeleteConfirmText('')}}>Annulla</button>
+                <button className="prof-action prof-delete-confirm-btn" disabled={deleteConfirmText!=='ELIMINA'}
+                  onClick={async()=>{await supabase.from('profili').delete().eq('id',utente.id);await doLogout()}}>
+                  Conferma eliminazione
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
-        <button className="btn-secondary" style={{marginTop:4}} onClick={doLogout}>Esci dall'account</button>
-
-        {deleteConfirmStep===0&&(
-          <button className="profilo-delete-btn" onClick={()=>setDeleteConfirmStep(1)}>Elimina account</button>
-        )}
-        {deleteConfirmStep>=1&&(
-          <div className="profilo-delete-confirm">
-            <p style={{fontSize:'.85rem',color:'var(--muted)',marginBottom:8}}>
-              Tutti i dati verranno eliminati definitivamente. Digita <strong style={{color:'#ef4444'}}>ELIMINA</strong> per confermare.
-            </p>
-            <input style={{width:'100%',padding:'10px 12px',background:'var(--surface-2)',border:'1.5px solid rgba(239,68,68,.4)',borderRadius:10,color:'var(--ink)',fontSize:'.9rem',outline:'none',marginBottom:8}}
-              value={deleteConfirmText} onChange={e=>setDeleteConfirmText(e.target.value)} placeholder="ELIMINA" autoFocus/>
-            <div style={{display:'flex',gap:8}}>
-              <button className="btn-secondary" style={{marginTop:0,flex:1}} onClick={()=>{setDeleteConfirmStep(0);setDeleteConfirmText('')}}>Annulla</button>
-              <button className="btn-sm danger" style={{flex:1,padding:'10px'}} disabled={deleteConfirmText!=='ELIMINA'}
-                onClick={async()=>{await supabase.from('profili').delete().eq('id',utente.id);await doLogout()}}>
-                Conferma
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </div>}
 
@@ -1595,136 +1590,173 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       </div>
     </div>}
 
-    {/* RIPASSO V2 */}
+    {/* RIPASSO — Apple white split layout */}
     {screen==='ripasso'&&<div className="screen anim ripasso-screen">
       <AppHeader title="Ripasso" onBack={()=>navTo('home')} backLabel="← Home"/>
 
-      <div className="ripasso-layout">
+      <div className="rip-split">
 
-        {/* Colonna sinistra: lista ripassi */}
-        <div className={`ripasso-list-panel${rShowForm?' rp-hidden-sm':''}`}>
+        {/* Colonna sinistra (~35%): lista ripassi */}
+        <aside className={`rip-list-col${rShowForm?' rip-hide-sm':''}`}>
+          <div className="rip-list-hdr">I tuoi ripassi</div>
           {ripassi.length===0
-            ?<div className="empty"><span style={{fontSize:'2rem'}}>—</span><p>Nessun ripasso pianificato.</p></div>
-            :<div className="ripasso-items">
-              {ripassi.map(r=>{
-                const mat=materie.find(m=>m.id===r.materia_id)
-                const hasQuiz=!!ripassiQuiz[r.id]
-                const isGenerating=ripassiGeneratingId===r.id
-                const FDOW={lun:'Ogni lunedì',mar:'Ogni martedì',mer:'Ogni mercoledì',gio:'Ogni giovedì',ven:'Ogni venerdì',sab:'Ogni sabato',dom:'Ogni domenica',giornaliero:'Ogni giorno',settimanale:'Settimanale'}
-                const freqLbl=FDOW[r.frequenza]||r.frequenza
-                const tipoLbl=r.quiz_modalita==='flashcard'?'Flashcard':'Multipla'
-                return(
-                  <div key={r.id} className={`ripasso-item2${rEditId===r.id&&rShowForm?' rp-active':''}`}>
-                    <div className="ripasso-item2-main" onClick={()=>openRipassoQuizFromTable(r)}>
-                      <div className="ripasso-item2-nome">{r.nome||mat?.nome||'Ripasso'}</div>
-                      <div className="ripasso-meta">{freqLbl} · {r.orario} · {r.quiz_num} dom. · {tipoLbl}</div>
-                      {isGenerating&&<div className="ripasso-item2-badge rp-gen"><Spinner/> Generando…</div>}
-                      {!isGenerating&&hasQuiz&&<div className="ripasso-item2-badge rp-ready">Pronto</div>}
-                      {!isGenerating&&!hasQuiz&&<div className="ripasso-item2-badge rp-wait">In attesa</div>}
+            ? <div className="rip-empty">Nessun ripasso pianificato.<br/>Tocca il + per crearne uno.</div>
+            : <div className="rip-list">
+                {ripassi.map(r=>{
+                  const mat=materie.find(m=>m.id===r.materia_id)
+                  const hasQuiz=!!ripassiQuiz[r.id]
+                  const isGenerating=ripassiGeneratingId===r.id
+                  const FDOW={lun:'Lun',mar:'Mar',mer:'Mer',gio:'Gio',ven:'Ven',sab:'Sab',dom:'Dom'}
+                  let freqLbl=r.frequenza
+                  if(r.frequenza==='giornaliero')freqLbl='Ogni giorno'
+                  else if(FDOW[r.frequenza])freqLbl='Ogni '+FDOW[r.frequenza].toLowerCase()+'edì'.replace('lunedì','lunedì')
+                  else if(r.frequenza==='settimanale')freqLbl='Settimanale'
+                  else if(r.frequenza?.startsWith('mensile-'))freqLbl='Ogni mese il '+r.frequenza.slice(8)
+                  else if(r.frequenza?.startsWith('custom:'))freqLbl=r.frequenza.slice(7).split(',').map(d=>FDOW[d]||d).join(', ')
+                  const tipoLbl=r.quiz_modalita==='flashcard'?'Cards':'Quiz'
+                  return(
+                    <div key={r.id} className={`rip-card${rEditId===r.id&&rShowForm?' rip-card-active':''}`}>
+                      <div className="rip-card-body" onClick={()=>openRipassoQuizFromTable(r)}>
+                        <div className="rip-card-title">Ripasso su {mat?.nome||'—'}</div>
+                        <div className="rip-card-meta">{freqLbl} · {r.orario} · {r.quiz_num} {tipoLbl}</div>
+                        {isGenerating
+                          ? <div className="rip-card-badge rip-gen"><Spinner/> Generazione…</div>
+                          : hasQuiz
+                            ? <div className="rip-card-badge rip-ready">● Pronto</div>
+                            : <div className="rip-card-badge rip-wait">○ In attesa</div>}
+                      </div>
+                      <div className="rip-card-actions">
+                        <button onClick={e=>{e.stopPropagation();editRipasso(r)}} title="Modifica">✎</button>
+                        <button className="danger" onClick={e=>{e.stopPropagation();setDialog({icon:'🗑️',title:'Elimina ripasso?',msg:'Verranno eliminati anche i quiz generati.',confirmLabel:'Elimina',danger:true,onConfirm:()=>deleteRipasso(r.id)})}} title="Elimina">✕</button>
+                      </div>
                     </div>
-                    <div className="ripasso-item2-btns">
-                      <button onClick={e=>{e.stopPropagation();editRipasso(r)}} title="Modifica parametri">⚙</button>
-                      <button className="danger" onClick={e=>{e.stopPropagation();setDialog({icon:'🗑️',title:'Elimina ripasso?',msg:'Verranno eliminati anche i quiz generati.',confirmLabel:'Elimina',danger:true,onConfirm:()=>deleteRipasso(r.id)})}} title="Elimina">✕</button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          }
-          <button className="fab-diamond" onClick={openNewRipassoForm} title="Nuovo ripasso">
-            <span className="fab-diamond-inner">+</span>
-          </button>
-        </div>
-
-        {/* Colonna destra: form creazione / modifica */}
-        <div className={`ripasso-form-panel${!rShowForm?' rp-hidden-sm':''}`}>
-          {rShowForm
-            ?<div className="ripasso-form">
-              <div className="ripasso-form-title">{rEditId?'Modifica ripasso':'Nuovo ripasso'}</div>
-
-              <div className="field">
-                <label>Nome ripasso <span className="field-opt">(opzionale)</span></label>
-                <input type="text" value={rNome} onChange={e=>setRNome(e.target.value)} placeholder="Es. Ripasso serale Matematica"/>
+                  )
+                })}
               </div>
+          }
+        </aside>
 
-              <div className="field">
-                <label>Materia</label>
-                <div className="rp-chips">
-                  {materie.map(m=>(
-                    <button key={m.id} className={`rp-chip${rMat===m.id?' sel':''}`}
-                      onClick={()=>{setRMat(m.id);loadArgomenti(m.id);setRArgs([])}}>
-                      {m.nome}
+        {/* Colonna destra (~65%): form nuovo/modifica */}
+        <section className={`rip-form-col${!rShowForm?' rip-hide-sm':''}`}>
+          {rShowForm?(<>
+            <div className="rip-form-hdr">
+              <h2>{rEditId?'Modifica ripasso':'Nuovo ripasso'}</h2>
+              {rEditId&&<button className="rip-close-btn" onClick={()=>{setRShowForm(false);setREditId(null)}}>✕</button>}
+            </div>
+
+            <div className="rip-field">
+              <label>Nome ripasso <span className="rip-opt">(opzionale)</span></label>
+              <input className="rip-input" type="text" value={rNome} onChange={e=>setRNome(e.target.value)}
+                placeholder="Es. Ripasso serale"/>
+            </div>
+
+            <div className="rip-field">
+              <label>Materia</label>
+              <select className="rip-input" value={rMat||''}
+                onChange={e=>{const v=e.target.value||null;setRMat(v);if(v)loadArgomenti(v);setRArgs([])}}>
+                <option value="">Seleziona una materia…</option>
+                {materie.map(m=>(<option key={m.id} value={m.id}>{m.nome}</option>))}
+              </select>
+            </div>
+
+            {rMat&&argomenti.filter(a=>a.materia_id===rMat).length>0&&(
+              <div className="rip-field">
+                <label>Argomenti <span className="rip-opt">(nessuno selezionato = tutti)</span></label>
+                <div className="rip-chip-row">
+                  {argomenti.filter(a=>a.materia_id===rMat).map(a=>(
+                    <button key={a.id} type="button"
+                      className={`rip-chip${rArgs.includes(a.id)?' sel':''}`}
+                      onClick={()=>setRArgs(p=>p.includes(a.id)?p.filter(x=>x!==a.id):[...p,a.id])}>
+                      {a.nome}
                     </button>
                   ))}
                 </div>
               </div>
+            )}
 
-              {rMat&&argomenti.filter(a=>a.materia_id===rMat).length>0&&(
-                <div className="field">
-                  <label>Argomento <span className="field-opt">(lascia vuoto = tutti)</span></label>
-                  <div className="rp-chips">
-                    <button className={`rp-chip${rArgs.length===0?' sel':''}`} onClick={()=>setRArgs([])}>Tutti</button>
-                    {argomenti.filter(a=>a.materia_id===rMat).map(a=>(
-                      <button key={a.id} className={`rp-chip${rArgs.includes(a.id)?' sel':''}`}
-                        onClick={()=>setRArgs(prev=>prev.includes(a.id)?prev.filter(x=>x!==a.id):[...prev,a.id])}>
-                        {a.nome}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="field">
-                <label>Frequenza</label>
-                <div className="rp-chips" style={{flexWrap:'wrap'}}>
-                  <button className={`rp-chip${rFreq==='giornaliero'?' sel':''}`} onClick={()=>setRFreq('giornaliero')}>Ogni giorno</button>
+            <div className="rip-field">
+              <label>Frequenza</label>
+              <div className="rip-toggle">
+                {[['D','Giornaliera'],['W','Settimanale'],['M','Mensile'],['C','Personalizzata']].map(([v,l])=>(
+                  <button key={v} type="button"
+                    className={`rip-toggle-btn${rFreqType===v?' sel':''}`}
+                    onClick={()=>setRFreqType(v)}>{l}</button>
+                ))}
+              </div>
+              {rFreqType==='W'&&(
+                <div className="rip-chip-row" style={{marginTop:10}}>
                   {[['lun','Lun'],['mar','Mar'],['mer','Mer'],['gio','Gio'],['ven','Ven'],['sab','Sab'],['dom','Dom']].map(([v,l])=>(
-                    <button key={v} className={`rp-chip${rFreq===v?' sel':''}`} onClick={()=>setRFreq(v)}>{l}</button>
+                    <button key={v} type="button" className={`rip-chip${rDay===v?' sel':''}`} onClick={()=>setRDay(v)}>{l}</button>
                   ))}
                 </div>
-              </div>
-
-              <div className="field">
-                <label>Orario notifica</label>
-                <input type="time" className="select-field" style={{maxWidth:140}} value={rOrario} onChange={e=>setROrario(e.target.value)}/>
-              </div>
-
-              <div className="ripasso-form-row">
-                <div className="field">
-                  <label>Tipo</label>
-                  <div className="cfg-btns">
-                    <button className={`cfg-btn${rQMode==='multipla'?' active':''}`} onClick={()=>setRQMode('multipla')}>Multipla</button>
-                    <button className={`cfg-btn${rQMode==='flashcard'?' active':''}`} onClick={()=>setRQMode('flashcard')}>Flashcard</button>
-                  </div>
+              )}
+              {rFreqType==='M'&&(
+                <div style={{marginTop:10,display:'flex',alignItems:'center',gap:10}}>
+                  <span className="rip-opt">Giorno del mese:</span>
+                  <input className="rip-input" type="number" min={1} max={31} value={rDayOfMonth}
+                    onChange={e=>setRDayOfMonth(Math.max(1,Math.min(31,Number(e.target.value)||1)))}
+                    style={{maxWidth:100}}/>
                 </div>
-                <div className="field">
-                  <label>Domande: <strong>{rQNum}</strong></label>
-                  <input type="range" min={5} max={50} step={5} value={rQNum}
-                    onChange={e=>setRQNum(Number(e.target.value))} className="rp-slider"/>
+              )}
+              {rFreqType==='C'&&(
+                <div className="rip-chip-row" style={{marginTop:10}}>
+                  {[['lun','Lun'],['mar','Mar'],['mer','Mer'],['gio','Gio'],['ven','Ven'],['sab','Sab'],['dom','Dom']].map(([v,l])=>(
+                    <button key={v} type="button"
+                      className={`rip-chip${rCustomDays.includes(v)?' sel':''}`}
+                      onClick={()=>setRCustomDays(p=>p.includes(v)?p.filter(x=>x!==v):[...p,v])}>{l}</button>
+                  ))}
                 </div>
-              </div>
+              )}
+            </div>
 
-              <div className="field">
-                <label>Su cosa vuoi concentrarti? <span className="field-opt">(opzionale)</span></label>
-                <textarea className="prompt-custom-input" rows={3}
-                  placeholder="Es. Concentrati sulle formule del secondo capitolo, evita domande sul primo…"
-                  value={rPrompt} onChange={e=>setRPrompt(e.target.value)}/>
-              </div>
+            <div className="rip-field">
+              <label>Orario</label>
+              <input className="rip-input" type="time" value={rOrario}
+                onChange={e=>setROrario(e.target.value)} style={{maxWidth:160}}/>
+            </div>
 
-              {ripassiGenerating&&<div className="rp-generating"><Spinner/><span>Generazione quiz in corso…</span></div>}
-
-              <div style={{display:'flex',gap:8}}>
-                {rEditId&&<button className="btn-secondary" style={{marginTop:0}} onClick={()=>{setRShowForm(false);setREditId(null)}}>Annulla</button>}
-                <button className="btn-primary" onClick={saveRipasso} disabled={!rMat||ripassiGenerating}>
-                  {ripassiGenerating?'Generando…':(rEditId?'Aggiorna e rigenera quiz':'💾 Salva e genera quiz')}
-                </button>
+            <div className="rip-field">
+              <label>Tipo output</label>
+              <div className="rip-toggle">
+                <button type="button" className={`rip-toggle-btn${rQMode==='multipla'?' sel':''}`} onClick={()=>setRQMode('multipla')}>Quiz</button>
+                <button type="button" className={`rip-toggle-btn${rQMode==='flashcard'?' sel':''}`} onClick={()=>setRQMode('flashcard')}>Cards</button>
               </div>
             </div>
-            :<div className="rp-form-empty"><p>Seleziona un ripasso dalla lista oppure creane uno nuovo</p></div>
-          }
-        </div>
+
+            <div className="rip-field">
+              <label>Numero domande</label>
+              <input className="rip-input" type="number" min={3} max={50}
+                value={rQNum} onChange={e=>setRQNum(Math.max(3,Math.min(50,Number(e.target.value)||10)))}
+                style={{maxWidth:120}}/>
+            </div>
+
+            <div className="rip-field">
+              <label>Personalizzazione <span className="rip-opt">(opzionale)</span></label>
+              <textarea className="rip-input rip-textarea" rows={3}
+                placeholder="Es. Concentrati sulle formule del secondo capitolo…"
+                value={rPrompt} onChange={e=>setRPrompt(e.target.value)}/>
+            </div>
+
+            {ripassiGenerating&&(
+              <div className="rip-generating"><Spinner/><span>Generazione quiz in corso…</span></div>
+            )}
+
+            <button className="rip-save-btn" onClick={saveRipasso} disabled={!rMat||ripassiGenerating}>
+              {ripassiGenerating?'Generando…':(rEditId?'Aggiorna e rigenera':'Salva')}
+            </button>
+          </>):(
+            <div className="rip-form-empty">
+              <div className="rip-form-empty-icon">+</div>
+              <p>Tocca il pulsante <strong>+</strong> per creare un nuovo ripasso,<br/>oppure seleziona un ripasso dalla lista.</p>
+            </div>
+          )}
+        </section>
 
       </div>
+
+      <button className="fab-diamond rip-fab" onClick={openNewRipassoForm} title="Nuovo ripasso">
+        <span className="fab-diamond-inner">+</span>
+      </button>
     </div>}
 
     {/* FULLPAGE MODAL */}

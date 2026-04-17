@@ -843,11 +843,11 @@ body {
   .av3-panel.av3-lab   { width: var(--w2, 30%); flex: none; }
 
   .av3-handle {
-    display: block; width: 2px; flex-shrink: 0;
-    background: #e0e0e0; cursor: col-resize;
+    display: block; width: 12px; flex-shrink: 0;
+    background: transparent; cursor: col-resize;
     transition: background .15s;
   }
-  .av3-handle:hover, .av3-handle.dragging { background: #bbb; }
+  .av3-handle:hover, .av3-handle.dragging { background: rgba(255,59,48,.3); }
 
   .av3-tabbar { display: none; }
 }

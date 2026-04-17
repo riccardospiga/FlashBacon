@@ -376,11 +376,12 @@ body {
 /* Materie tiles grid */
 .materie-tiles {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
   gap: 8px; margin-bottom: 10px;
+  width: 100%;
 }
 .materia-tile2 {
-  border-radius: 14px; min-height: 90px;
+  border-radius: 14px; min-height: 90px; max-width: 160px; width: 100%;
   background: var(--surface-2);
   display: flex; align-items: center; justify-content: center;
   cursor: pointer; position: relative; overflow: hidden;
@@ -2449,11 +2450,6 @@ body {
 }
 .tool-card-pen-btn:hover { background: var(--accent); color: white; }
 
-
-/* ═══ RESPONSIVE HOME: on very small screens keep single col ═══ */
-@media (max-width: 380px) {
-  .materie-tiles { grid-template-columns: 1fr 1fr !important; }
-}
 
 /* ═══ HOME V3 — Apple light theme ═══ */
 .home-screen-v3 {

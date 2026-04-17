@@ -440,7 +440,7 @@ body {
 @media (min-width: 1024px) {
   .home-layout2 {
     display: grid;
-    grid-template-columns: 1fr 1px 33vw;
+    grid-template-columns: calc(100% - 33vw) 1px 33vw;
     flex-direction: unset;
   }
   .home-layout2::before {

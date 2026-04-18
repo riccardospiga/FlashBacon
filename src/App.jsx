@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import katex from 'katex'
 import 'katex/dist/katex.min.css'
 import { supabase } from './supabase.js'
@@ -171,6 +171,10 @@ export default function App(){
 const [showUploadModal,setShowUploadModal]=useState(false)
 const [showFontiUpload,setShowFontiUpload]=useState(false)
 const [showQuizPicker,setShowQuizPicker]=useState(false)
+const [showFabMenu,setShowFabMenu]=useState(false)
+const [sheetMatSimple,setSheetMatSimple]=useState(false)
+const [theme,setTheme]=useState(()=>{try{return localStorage.getItem('fb_theme')||'light'}catch{return 'light'}})
+useEffect(()=>{try{document.documentElement.setAttribute('data-theme',theme);localStorage.setItem('fb_theme',theme)}catch{}},[theme])
   const [utente,setUtente]=useState(null)
   const [materie,setMaterie]=useState([])
   const [argomenti,setArgomenti]=useState([])
@@ -468,13 +472,22 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   async function loadMaterie(email){const{data}=await supabase.from('materie').select('*').eq('utente_email',email).order('created_at');setMaterie(data||[])}
   async function loadArgomenti(mid){const{data}=await supabase.from('argomenti').select('*').eq('materia_id',mid).order('created_at');setArgomenti(prev=>[...prev.filter(a=>a.materia_id!==mid),...(data||[])])}
   async function loadFonti(aid,mid){
-    const q=mid
-      ?supabase.from('fonti').select('*').or(`argomento_id.eq.${aid},and(argomento_id.is.null,materia_id.eq.${mid})`)
-      :supabase.from('fonti').select('*').eq('argomento_id',aid)
-    const{data}=await q.order('created_at')
-    setFonti(data||[])
+    try{
+      const q=mid
+        ?supabase.from('fonti').select('*').or(`argomento_id.eq.${aid},and(argomento_id.is.null,materia_id.eq.${mid})`)
+        :supabase.from('fonti').select('*').eq('argomento_id',aid)
+      const{data,error}=await q.order('created_at')
+      if(error)throw error
+      setFonti(data||[])
+    }catch(e){toast('⚠️ Errore caricamento fonti');console.warn('loadFonti:',e.message)}
   }
-  async function loadStorico(aid){const{data}=await supabase.from('storico').select('*').eq('argomento_id',aid).order('created_at',{ascending:false});setStorico(data||[]);return data||[]}
+  async function loadStorico(aid){
+    try{
+      const{data,error}=await supabase.from('storico').select('*').eq('argomento_id',aid).order('created_at',{ascending:false})
+      if(error)throw error
+      setStorico(data||[]);return data||[]
+    }catch(e){toast('⚠️ Errore caricamento storico');console.warn('loadStorico:',e.message);return[]}
+  }
   async function openArgomento(a){
     setCurArgId(a.id);setArgTab('chat');setChatMsgs([])
     loadFonti(a.id,curMateriaId)
@@ -519,15 +532,33 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     window.addEventListener('mousemove',onMove)
     window.addEventListener('mouseup',onUp)
   }
-  async function loadProviders(){const{data}=await supabase.from('ai_providers').select('*').order('created_at');setProviders(data||[])}
-  async function loadRipassi(email){const{data}=await supabase.from('studio_pianificato').select('*').eq('utente_email',email).order('created_at',{ascending:true});setRipassi(data||[]);return data||[]}
+  async function loadProviders(){
+    try{const{data,error}=await supabase.from('ai_providers').select('*').order('created_at');if(error)throw error;setProviders(data||[])}
+    catch(e){toast('⚠️ Errore caricamento providers');console.warn('loadProviders:',e.message)}
+  }
+  async function loadRipassi(email){
+    try{const{data,error}=await supabase.from('studio_pianificato').select('*').eq('utente_email',email).order('created_at',{ascending:true});if(error)throw error;setRipassi(data||[]);return data||[]}
+    catch(e){toast('⚠️ Errore caricamento ripassi');console.warn('loadRipassi:',e.message);return[]}
+  }
   async function loadRipassiQuiz(list){
     const ids=(list||ripassi).map(r=>r.id)
     if(!ids.length)return
-    const{data}=await supabase.from('ripassi_quiz').select('*').in('ripasso_id',ids).order('created_at',{ascending:false})
-    const map={}
-    for(const q of (data||[])){if(!map[q.ripasso_id])map[q.ripasso_id]=q}
-    setRipassiQuiz(map)
+    try{
+      const{data,error}=await supabase.from('ripassi_quiz').select('*').in('ripasso_id',ids).order('created_at',{ascending:false})
+      if(error)throw error
+      const map={}
+      for(const q of (data||[])){
+        let dom=q.domande
+        if(typeof dom==='string'){try{dom=JSON.parse(dom)}catch{dom=null}}
+        if(Array.isArray(dom)&&dom.length&&!map[q.ripasso_id]){
+          map[q.ripasso_id]={...q,domande:dom}
+        }
+      }
+      setRipassiQuiz(map)
+    }catch(e){
+      console.warn('loadRipassiQuiz:',e.message)
+      toast('⚠️ Errore caricamento quiz ripasso')
+    }
   }
   async function loadTokenUsage(email){
     const{data}=await supabase.from('profili').select('token_usati,token_reset_date,ruolo').eq('email',email).single()
@@ -567,9 +598,22 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     if(!newMatNome.trim())return
     // Se nessuna immagine selezionata, usa Pollinations.ai
     const coverImg=newMatCoverImg||pollinationsUrl(newMatNome.trim())
-    const{data,error}=await supabase.from('materie').insert({utente_email:utente.email,nome:newMatNome.trim(),emoji:newMatEmoji,cover_image:coverImg,dizionario:newMatDizionario,lingua:newMatDizionario?newMatLingua.trim()||null:null}).select().single()
-    if(!error){setMaterie(p=>[...p,data]);toast('Materia creata ✓')}
+    try{
+      const{data,error}=await supabase.from('materie').insert({utente_email:utente.email,nome:newMatNome.trim(),emoji:newMatEmoji,cover_image:coverImg,dizionario:newMatDizionario,lingua:newMatDizionario?newMatLingua.trim()||null:null}).select().single()
+      if(error)throw error
+      setMaterie(p=>[...p,data]);toast('Materia creata ✓')
+    }catch(e){toast('⚠️ '+(e.message||'Errore creazione materia'))}
     setSheetMat(false);setNewMatNome('');setNewMatCoverImg(null);setMatImgQuery('');setMatImgResults([]);setNewMatDizionario(false);setNewMatLingua('')
+  }
+  async function saveMateriaSimple(){
+    if(!newMatNome.trim())return
+    const coverImg=pollinationsUrl(newMatNome.trim())
+    try{
+      const{data,error}=await supabase.from('materie').insert({utente_email:utente.email,nome:newMatNome.trim(),emoji:newMatEmoji,cover_image:coverImg,dizionario:false,lingua:null}).select().single()
+      if(error)throw error
+      setMaterie(p=>[...p,data]);toast('Materia creata ✓')
+    }catch(e){toast('⚠️ '+(e.message||'Errore creazione materia'))}
+    setSheetMatSimple(false);setNewMatNome('');setNewMatEmoji('📚')
   }
   async function searchUnsplash(q){
     if(!q.trim())return
@@ -896,30 +940,41 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   async function openRipassoQuizFromTable(r){
     // STRICT: render inline in Ripasso screen, zero navigation to Lab.
     setFullpage(null);setRShowForm(false);setREditId(null)
-    const{data:qRow,error}=await supabase.from('ripassi_quiz').select('*').eq('ripasso_id',r.id).order('created_at',{ascending:false}).limit(1).maybeSingle()
-    if(error){toast('⚠️ Errore caricamento quiz: '+error.message);return}
-    // Cached quiz exists → show immediately.
-    if(qRow&&Array.isArray(qRow.domande)&&qRow.domande.length){
-      setRipassiQuiz(p=>({...p,[r.id]:qRow}))
-      applyRipassoQuiz(r,qRow)
-      return
-    }
-    // No cached quiz → show inline "Generazione in corso…" and generate.
-    setRRunning({ripasso:r,mode:r.quiz_modalita||'multipla',domande:[],loading:true})
-    setRipassiGeneratingId(r.id);setRipassiGenerating(true)
     try{
-      await generateRipassoAndSaveToTable(r)
-      const{data:fresh,error:e2}=await supabase.from('ripassi_quiz').select('*').eq('ripasso_id',r.id).order('created_at',{ascending:false}).limit(1).maybeSingle()
-      if(e2)throw new Error(e2.message)
-      if(!fresh||!Array.isArray(fresh.domande)||!fresh.domande.length){
-        throw new Error('generazione fallita')
+      const{data:qRow,error}=await supabase.from('ripassi_quiz').select('*').eq('ripasso_id',r.id).order('created_at',{ascending:false}).limit(1).maybeSingle()
+      if(error)throw new Error(error.message)
+      let domande=qRow?.domande
+      if(typeof domande==='string'){try{domande=JSON.parse(domande)}catch{domande=null}}
+      if(qRow&&Array.isArray(domande)&&domande.length){
+        const normalized={...qRow,domande}
+        setRipassiQuiz(p=>({...p,[r.id]:normalized}))
+        applyRipassoQuiz(r,normalized)
+        return
       }
-      setRipassiQuiz(p=>({...p,[r.id]:fresh}))
-      applyRipassoQuiz(r,fresh)
+      // No cached quiz → show inline "Generazione in corso…" and generate.
+      setRRunning({ripasso:r,mode:r.quiz_modalita||'multipla',domande:[],loading:true})
+      setRipassiGeneratingId(r.id);setRipassiGenerating(true)
+      try{
+        await generateRipassoAndSaveToTable(r)
+        const{data:fresh,error:e2}=await supabase.from('ripassi_quiz').select('*').eq('ripasso_id',r.id).order('created_at',{ascending:false}).limit(1).maybeSingle()
+        if(e2)throw new Error(e2.message)
+        let freshDom=fresh?.domande
+        if(typeof freshDom==='string'){try{freshDom=JSON.parse(freshDom)}catch{freshDom=null}}
+        if(!fresh||!Array.isArray(freshDom)||!freshDom.length){
+          throw new Error('generazione fallita: nessuna domanda creata')
+        }
+        const normalized={...fresh,domande:freshDom}
+        setRipassiQuiz(p=>({...p,[r.id]:normalized}))
+        applyRipassoQuiz(r,normalized)
+      }catch(e){
+        toast('⚠️ '+(e.message||'errore generazione'))
+        setRRunning(null)
+      }finally{
+        setRipassiGenerating(false);setRipassiGeneratingId(null)
+      }
     }catch(e){
-      toast('⚠️ '+(e.message||'errore generazione'))
+      toast('⚠️ Errore: '+e.message)
       setRRunning(null)
-    }finally{
       setRipassiGenerating(false);setRipassiGeneratingId(null)
     }
   }
@@ -949,6 +1004,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       setRipassiGeneratingId(ripassoRow.id)
       setRipassiGenerating(true)
       try{await generateRipassoAndSaveToTable(ripassoRow)}
+      catch(e){console.warn('saveRipasso generate:',e.message)}
       finally{setRipassiGenerating(false);setRipassiGeneratingId(null)}
     }
   }
@@ -980,12 +1036,19 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.error||`AI ${res.status}`)}
       const quizResult=await readAIStream(res,null)
       const parsed=mode==='flashcard'?parseFC(quizResult):mode==='multipla'?parseQuiz(quizResult):parseOpenQuiz(quizResult)
+      if(!Array.isArray(parsed)||!parsed.length)throw new Error('parsing risposta AI fallito')
       // Sostituisci sempre il quiz più recente (delete vecchio + insert nuovo)
       await supabase.from('ripassi_quiz').delete().eq('ripasso_id',r.id)
-      const{data:qRow}=await supabase.from('ripassi_quiz').insert({ripasso_id:r.id,domande:parsed,modalita:mode}).select().single()
-      if(qRow)setRipassiQuiz(p=>({...p,[r.id]:qRow}))
+      const{data:qRow,error:insErr}=await supabase.from('ripassi_quiz').insert({ripasso_id:r.id,domande:parsed,modalita:mode}).select().single()
+      if(insErr)throw new Error(insErr.message)
+      if(qRow){
+        let dom=qRow.domande
+        if(typeof dom==='string'){try{dom=JSON.parse(dom)}catch{dom=parsed}}
+        if(!Array.isArray(dom))dom=parsed
+        setRipassiQuiz(p=>({...p,[r.id]:{...qRow,domande:dom}}))
+      }
       showAIDone(mode==='flashcard'?'Flashcard ripasso pronte!':'Quiz ripasso pronto!')
-    }catch(e){console.warn('generateRipassoAndSaveToTable:',e.message);toast('⚠️ Quiz: '+e.message)}
+    }catch(e){console.warn('generateRipassoAndSaveToTable:',e.message);toast('⚠️ Quiz: '+e.message);throw e}
   }
 
   async function generateRipassoAndSave(r){
@@ -1135,7 +1198,8 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
   async function deleteProvider(id){try{const res=await fetch('/api/admin/delete-provider',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})});if(!res.ok)throw new Error('Errore');toast('Eliminato');await loadProviders()}catch(e){toast('Errore: '+e.message)}}
 
   /* ══════ COMPUTED ══════ */
-  const curMateria=materie.find(m=>m.id===curMateriaId)
+  const curMateria=useMemo(()=>materie.find(m=>m.id===curMateriaId),[materie,curMateriaId])
+  const argomentiCorrenti=useMemo(()=>argomentiCorrenti,[argomenti,curMateriaId])
   const curArgomento=argomenti.find(a=>a.id===curArgId)
   const activeProvider=providers.find(p=>p.attivo)
   const argFonti=fonti.filter(f=>f.argomento_id===curArgId||f.argomento_id==null)
@@ -1237,7 +1301,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
           {/* Bottom row: Ripasso + FAB + */}
           <div className="hv3-bottom-row">
             <button className="hv3-ripasso-btn" onClick={()=>navTo('ripasso')}>Ripasso</button>
-            <button className="hv3-fab" onClick={()=>setShowUploadModal(true)}>+</button>
+            <button className="hv3-fab" onClick={()=>setShowFabMenu(true)}>+</button>
           </div>
         </div>
 
@@ -1251,10 +1315,10 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
                   <span className="hv3-nuovo-plus">+</span> Nuovo
                 </button>
               </div>
-              {argomenti.filter(a=>a.materia_id===curMateriaId).length===0
+              {argomentiCorrenti.length===0
                 ?<div className="hv3-empty" style={{padding:'24px 0'}}><span>📝</span><p>Nessun argomento.</p></div>
                 :<div className="hv3-arg-list">
-                  {argomenti.filter(a=>a.materia_id===curMateriaId).map(a=>(
+                  {argomentiCorrenti.map(a=>(
                     <div key={a.id}
                       className={'hv3-arg-card'+(selArg.has(a.id)?' sel':'')}
                       onClick={()=>{if(selArg.size>0){const n=new Set(selArg);n.has(a.id)?n.delete(a.id):n.add(a.id);setSelArg(n);return}openArgomento(a)}}
@@ -1298,8 +1362,8 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
           <button className="btn-sm danger" onClick={()=>setDialog({icon:'🗑️',title:'Elimina argomenti?',msg:'Elimina gli argomenti selezionati?',confirmLabel:'Elimina',danger:true,onConfirm:()=>deleteArgomenti(selArg)})}>Elimina</button>
         </div>}
         <div className="argomenti-list">
-          {argomenti.filter(a=>a.materia_id===curMateriaId).length===0&&<div className="empty"><span>📝</span><p>Nessun argomento. Creane uno con il "+" in alto!</p></div>}
-          {argomenti.filter(a=>a.materia_id===curMateriaId).map(a=>(
+          {argomentiCorrenti.length===0&&<div className="empty"><span>📝</span><p>Nessun argomento. Creane uno con il "+" in alto!</p></div>}
+          {argomentiCorrenti.map(a=>(
             <div key={a.id} className="argomento-row"
               onClick={()=>{if(selArg.size>0){const n=new Set(selArg);n.has(a.id)?n.delete(a.id):n.add(a.id);setSelArg(n);return}openArgomento(a)}}
               onContextMenu={e=>{e.preventDefault();const n=new Set(selArg);n.has(a.id)?n.delete(a.id):n.add(a.id);setSelArg(n)}}
@@ -1433,29 +1497,24 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
             )}
             {aiBlocked&&<div className="av3-warn av3-warn-err">🚫 Limite token raggiunto.</div>}
 
-            {/* Quiz wide */}
-            <div className={`av3-tool-wide${aiBlocked?' av3-disabled':''}`} onClick={()=>!aiBlocked&&setShowQuizPicker(true)}>
+            {/* Quiz wide — 2x size (Task #7) */}
+            <div className={`av3-tool-wide av3-tool-xl${aiBlocked?' av3-disabled':''}`} onClick={()=>!aiBlocked&&setShowQuizPicker(true)}>
               <span className="av3-tool-icon">❓</span>
               <div className="av3-tool-info"><div className="av3-tool-name">Quiz</div><div className="av3-tool-desc">Multipla · Aperta</div></div>
               <button className="av3-tool-cfg" onClick={e=>{e.stopPropagation();!aiBlocked&&openToolCfg('quiz')}}>✏️</button>
             </div>
 
-            {/* Grid tools */}
+            {/* Grid tools (Dizionario escluso — card dedicata sotto) */}
             <div className="av3-tools-grid">
               {[
                 {key:'riassunto',icon:'📝',name:'Riassunto',desc:'Sintesi'},
                 {key:'flashcards',icon:'🃏',name:'Flash Cards',desc:'Flip 3D'},
                 {key:'mappa',icon:'🗺️',name:'Mappa',desc:'Visuale'},
                 {key:'punti',icon:'🎯',name:'Punti chiave',desc:'Concetti'},
-                {key:'dizionario',icon:'📖',name:'Dizionario',desc:curMateria?.lingua||'Sinonimi'},
               ].map(t=>(
                 <div key={t.key} className={`av3-tool${aiBlocked?' av3-disabled':''}`}
-                  onClick={()=>{
-                    if(aiBlocked)return
-                    if(t.key==='dizionario'){setLabInline(p=>p?.key==='dizionario'?null:{key:'dizionario',loading:false,data:null});return}
-                    runTool(t.key,outputCfg,false)
-                  }}>
-                  <button className="av3-tool-cfg" onClick={e=>{e.stopPropagation();!aiBlocked&&t.key!=='dizionario'&&openToolCfg(t.key)}}>✏️</button>
+                  onClick={()=>{if(!aiBlocked)runTool(t.key,outputCfg,false)}}>
+                  <button className="av3-tool-cfg" onClick={e=>{e.stopPropagation();!aiBlocked&&openToolCfg(t.key)}}>✏️</button>
                   <span className="av3-tool-icon">{t.icon}</span>
                   <div className="av3-tool-name">{t.name}</div>
                   <div className="av3-tool-desc">{t.desc}</div>
@@ -1463,27 +1522,27 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
               ))}
             </div>
 
-            {labInline?.key==='dizionario'&&(
-              <div className="av3-diz">
-                <div className="av3-diz-row">
-                  <input className="av3-diz-input" value={labDizQuery} onChange={e=>setLabDizQuery(e.target.value)}
-                    placeholder="Inserisci una parola…"
-                    onKeyDown={e=>e.key==='Enter'&&runDizionario(labDizQuery)}/>
-                  <button className="av3-send-btn" onClick={()=>runDizionario(labDizQuery)} disabled={labInline.loading||!labDizQuery.trim()}>
-                    {labInline.loading?<Spinner/>:<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>}
-                  </button>
-                </div>
-                {labInline.data&&!labInline.loading&&(
-                  labInline.data.error?<div style={{color:'#f87171',fontSize:'.82rem'}}>{labInline.data.error}</div>:
-                  labInline.data.raw?<pre style={{fontSize:'.78rem',color:'#888',whiteSpace:'pre-wrap'}}>{labInline.data.raw}</pre>:
-                  <div className="lab-diz-result">
-                    {labInline.data.significati?.length>0&&<div className="lab-diz-section"><div className="lab-diz-label">Significati</div>{labInline.data.significati.map((s,i)=><div key={i} className="lab-diz-item">{s}</div>)}</div>}
-                    {labInline.data.sinonimi?.length>0&&<div className="lab-diz-section"><div className="lab-diz-label">Sinonimi</div><div style={{display:'flex',flexWrap:'wrap',gap:4}}>{labInline.data.sinonimi.map((s,i)=><span key={i} className="lab-diz-chip">{s}</span>)}</div></div>}
-                    {labInline.data.traduzioni&&<div className="lab-diz-section"><div className="lab-diz-label">Traduzioni</div><div className="lab-diz-traduzioni">{Object.entries(labInline.data.traduzioni).map(([lang,val])=><div key={lang} className="lab-diz-trad"><span className="lab-diz-lang">{lang.toUpperCase()}</span><span>{val}</span></div>)}</div></div>}
-                  </div>
-                )}
+            {/* Dizionario — card normale con input inline sempre visibile (Task #7) */}
+            <div className="av3-diz-card">
+              <div className="av3-diz-title"><span>📖</span><span>Dizionario</span><span style={{color:'var(--muted)',fontWeight:400,fontSize:11,marginLeft:'auto'}}>{curMateria?.lingua||'Sinonimi'}</span></div>
+              <div className="av3-diz-row">
+                <input className="av3-diz-input" value={labDizQuery} onChange={e=>setLabDizQuery(e.target.value)}
+                  placeholder="Inserisci una parola…" disabled={aiBlocked}
+                  onKeyDown={e=>e.key==='Enter'&&!aiBlocked&&runDizionario(labDizQuery)}/>
+                <button className="av3-send-btn" onClick={()=>runDizionario(labDizQuery)} disabled={aiBlocked||labInline?.loading||!labDizQuery.trim()}>
+                  {labInline?.loading?<Spinner/>:<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>}
+                </button>
               </div>
-            )}
+              {labInline?.key==='dizionario'&&labInline.data&&!labInline.loading&&(
+                labInline.data.error?<div style={{color:'#f87171',fontSize:'.82rem'}}>{labInline.data.error}</div>:
+                labInline.data.raw?<pre style={{fontSize:'.78rem',color:'var(--muted)',whiteSpace:'pre-wrap'}}>{labInline.data.raw}</pre>:
+                <div className="lab-diz-result">
+                  {labInline.data.significati?.length>0&&<div className="lab-diz-section"><div className="lab-diz-label">Significati</div>{labInline.data.significati.map((s,i)=><div key={i} className="lab-diz-item">{s}</div>)}</div>}
+                  {labInline.data.sinonimi?.length>0&&<div className="lab-diz-section"><div className="lab-diz-label">Sinonimi</div><div style={{display:'flex',flexWrap:'wrap',gap:4}}>{labInline.data.sinonimi.map((s,i)=><span key={i} className="lab-diz-chip">{s}</span>)}</div></div>}
+                  {labInline.data.traduzioni&&<div className="lab-diz-section"><div className="lab-diz-label">Traduzioni</div><div className="lab-diz-traduzioni">{Object.entries(labInline.data.traduzioni).map(([lang,val])=><div key={lang} className="lab-diz-trad"><span className="lab-diz-lang">{lang.toUpperCase()}</span><span>{val}</span></div>)}</div></div>}
+                </div>
+              )}
+            </div>
 
             <div className="av3-section-label">Generati</div>
             {selStorico.size>0&&<div className="sel-bar" style={{marginBottom:8}}><span>{selStorico.size} selezionati</span><button className="btn-sm danger" onClick={deleteStoricoSel}>Elimina</button></div>}
@@ -1556,6 +1615,11 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
           <button className="prof-row" onClick={()=>setScreen('impostazioni')}>
             <span className="prof-row-icon">🤖</span>
             <span className="prof-row-label">Mod AI</span>
+            <span className="prof-row-arrow">›</span>
+          </button>
+          <button className="prof-row" onClick={()=>setTheme(t=>t==='dark'?'light':'dark')}>
+            <span className="prof-row-icon">{theme==='dark'?'🌙':'☀️'}</span>
+            <span className="prof-row-label">Tema: {theme==='dark'?'Scuro':'Chiaro'}</span>
             <span className="prof-row-arrow">›</span>
           </button>
           <button className="prof-row" onClick={()=>{setGuidaSearch('');setScreen('guida')}}>
@@ -2283,6 +2347,44 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       </div>
     </div>}
 
+    {/* FAB MENU */}
+    {showFabMenu&&<div className="fab-menu-ov" onClick={()=>setShowFabMenu(false)}>
+      <div className="fab-menu" onClick={e=>e.stopPropagation()}>
+        <button className="fab-menu-item" onClick={()=>{setShowFabMenu(false);setNewMatNome('');setNewMatEmoji('📚');setSheetMatSimple(true)}}>
+          <span className="fab-menu-icon">📁</span>
+          <span>Nuova materia</span>
+        </button>
+        <button className="fab-menu-item" onClick={()=>{setShowFabMenu(false);setShowUploadModal(true)}}>
+          <span className="fab-menu-icon">✨</span>
+          <span>Carica fonti con AI</span>
+        </button>
+      </div>
+    </div>}
+
+    {/* SHEET: Nuova materia semplice (solo nome + emoji) */}
+    {sheetMatSimple&&<div className="sheet-ov" onClick={()=>setSheetMatSimple(false)}><div className="sheet" onClick={e=>e.stopPropagation()}>
+      <h3>Nuova Materia</h3>
+      <div className="field">
+        <label>Nome</label>
+        <input type="text" value={newMatNome} autoFocus
+          onChange={e=>setNewMatNome(e.target.value)}
+          placeholder="Es. Matematica"
+          onKeyDown={async e=>{if(e.key==='Enter'&&newMatNome.trim()){await saveMateriaSimple();}}}/>
+      </div>
+      <div className="field">
+        <label>Emoji</label>
+        <div style={{display:'flex',flexWrap:'wrap',gap:6,maxHeight:180,overflowY:'auto'}}>
+          {EMOJIS.map(em=>(
+            <button key={em} type="button" onClick={()=>setNewMatEmoji(em)}
+              style={{fontSize:22,padding:'6px 10px',borderRadius:10,border:newMatEmoji===em?'2px solid var(--accent)':'1px solid var(--border)',background:newMatEmoji===em?'var(--surface-2)':'var(--surface)',cursor:'pointer'}}>
+              {em}
+            </button>
+          ))}
+        </div>
+      </div>
+      <button className="btn-primary" onClick={saveMateriaSimple} disabled={!newMatNome.trim()}>Crea materia</button>
+    </div></div>}
+
     {/* UPLOAD AI MODAL (home) */}
     {showUploadModal&&<UploadAIModal
       materie={materie}
@@ -2399,8 +2501,17 @@ class QuizErrorBoundary extends React.Component {
 /* ═══ QUIZ QUESTION (multipla) ═══ */
 function QuizQ({q,idx,total,onNext,onCorrect,onWrong}){
   const [chosen,setChosen]=useState(null)
+  const origOpts=Array.isArray(q?.opts)?q.opts:Array.isArray(q?.opzioni)?q.opzioni:[]
+  const origCor=typeof q?.cor==='number'?Math.min(q.cor,3):typeof q?.corretta==='number'?Math.min(q.corretta,3):0
+  // Fisher-Yates shuffle (stable across re-renders via useMemo keyed by question ref)
+  const {opts,corIdx}=useMemo(()=>{
+    const arr=origOpts.slice(0,4).map((o,i)=>({o,i}))
+    for(let i=arr.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[arr[i],arr[j]]=[arr[j],arr[i]]}
+    const newCor=arr.findIndex(x=>x.i===origCor)
+    return{opts:arr.map(x=>x.o),corIdx:newCor>=0?newCor:0}
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[q])
   if(!q||typeof q!=='object') return null
-  const corIdx=typeof q.cor==='number'?Math.min(q.cor,3):typeof q.corretta==='number'?Math.min(q.corretta,3):0
   const answered=chosen!==null
   function answer(i){
     if(answered)return
@@ -2408,8 +2519,6 @@ function QuizQ({q,idx,total,onNext,onCorrect,onWrong}){
     if(i===corIdx)onCorrect?.()
     else onWrong?.(q)
   }
-  const rawOpts=Array.isArray(q.opts)?q.opts:Array.isArray(q.opzioni)?q.opzioni:[]
-  const opts=rawOpts.slice(0,4)
   if(opts.filter(Boolean).length<2) return(
     <div style={{padding:20,color:'var(--muted)',fontSize:'.9rem',whiteSpace:'pre-wrap'}}>{String(q.dom||'')}</div>
   )

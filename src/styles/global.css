@@ -2482,6 +2482,7 @@ body {
 /* Body */
 .hv3-body {
   flex: 1; display: flex; overflow: hidden;
+  min-height: 0;
 }
 
 /* Left column */
@@ -2585,13 +2586,28 @@ body {
   font-size: 13px; color: #bbb;
 }
 
-/* Desktop ≥768px: split layout */
+/* Desktop ≥768px: split layout — hardcoded 2fr | 1px | 1fr */
 @media (min-width: 768px) {
-  .hv3-left { border-right: 1px solid #f0f0f0; }
+  .hv3-body {
+    display: grid;
+    grid-template-columns: 2fr 1px 1fr;
+    grid-template-rows: 1fr;
+  }
+  .hv3-left {
+    grid-column: 1; grid-row: 1;
+    flex: none; width: auto; min-width: 0; max-width: 100%;
+    border-right: none;
+  }
+  .hv3-body::before {
+    content: ''; grid-column: 2; grid-row: 1;
+    background: var(--border);
+    width: 1px;
+  }
   .hv3-right {
+    grid-column: 3; grid-row: 1;
     display: flex; flex-direction: column;
-    width: 220px; flex-shrink: 0;
-    background: #fafafa; overflow: hidden;
+    flex: none; width: auto; min-width: 0; max-width: 100%;
+    background: var(--surface-2); overflow: hidden;
   }
 }
 
@@ -3371,3 +3387,153 @@ body {
   background: rgba(255,59,48,.3) !important;
   border-color: rgba(255,59,48,.3) !important;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   DARK THEME (Task #4) — applies via [data-theme="dark"] on <html>
+   ═══════════════════════════════════════════════════════════════ */
+[data-theme="dark"] {
+  --bg:          #1C1C2E;
+  --surface:     #252535;
+  --surface-2:   #2E2E45;
+  --surface-3:   #363651;
+  --elevated:    #2E2E45;
+  --ink:         #FFFFFF;
+  --muted:       #A0A0B8;
+  --border:      #3A3A52;
+  --border-md:   #4A4A65;
+  --border-str:  #5A5A75;
+  --gray:        #252535;
+  --gray2:       rgba(255,255,255,.06);
+  --dark-bg:     #252535;
+}
+[data-theme="dark"] body { background: #1C1C2E; color: #FFFFFF; }
+[data-theme="dark"] .screen { background: var(--bg); }
+[data-theme="dark"] .screen.home-screen-v3 { background: #1C1C2E; }
+
+/* Override hardcoded whites/grays in hv3 */
+[data-theme="dark"] .hv3-card,
+[data-theme="dark"] .hv3-ripasso-btn,
+[data-theme="dark"] .hv3-arg-card {
+  background: var(--surface); border-color: var(--border);
+}
+[data-theme="dark"] .hv3-card:hover,
+[data-theme="dark"] .hv3-arg-card:hover { border-color: var(--border-md); }
+[data-theme="dark"] .hv3-ripasso-btn { color: #fff; border-color: var(--border-md); }
+[data-theme="dark"] .hv3-ripasso-btn:hover { border-color: var(--border-str); }
+[data-theme="dark"] .hv3-card-name,
+[data-theme="dark"] .hv3-arg-name,
+[data-theme="dark"] .hv3-right-title { color: #fff; }
+[data-theme="dark"] .hv3-card.active,
+[data-theme="dark"] .hv3-card.sel { background: rgba(212,105,42,.12); border-color: var(--accent); }
+[data-theme="dark"] .hv3-arg-card.sel { background: rgba(212,105,42,.12); border-color: var(--accent); }
+[data-theme="dark"] .hv3-right-header { border-bottom-color: var(--border); }
+[data-theme="dark"] .hv3-right-empty,
+[data-theme="dark"] .hv3-arg-arrow,
+[data-theme="dark"] .hv3-empty { color: var(--muted); }
+
+/* Argomento view av3 */
+[data-theme="dark"] .av3-tool-wide,
+[data-theme="dark"] .av3-tool,
+[data-theme="dark"] .av3-storico-row,
+[data-theme="dark"] .av3-diz { background: var(--surface); border-color: var(--border); }
+[data-theme="dark"] .av3-tool-wide:hover,
+[data-theme="dark"] .av3-tool:hover,
+[data-theme="dark"] .av3-storico-row:hover { border-color: var(--border-md); }
+[data-theme="dark"] .av3-tool-name { color: #fff; }
+[data-theme="dark"] .av3-tool-desc,
+[data-theme="dark"] .av3-storico-label,
+[data-theme="dark"] .av3-storico-date { color: var(--muted); }
+[data-theme="dark"] .av3-storico-preview { color: #e0e0e8; }
+[data-theme="dark"] .av3-diz-input { background: var(--surface-2); border-color: var(--border); color: #fff; }
+[data-theme="dark"] .av3-diz-input:focus { background: var(--surface-3); border-color: var(--accent); }
+[data-theme="dark"] .av3-tabbar { background: var(--surface); border-top-color: var(--border); }
+[data-theme="dark"] .av3-tab-btn { color: var(--muted); }
+[data-theme="dark"] .av3-tab-btn.active { color: var(--accent); }
+[data-theme="dark"] .av3-section-label { color: var(--muted); }
+
+/* Profile */
+[data-theme="dark"] .prof-action { background: var(--surface); border-color: var(--border); color: #fff; }
+[data-theme="dark"] .prof-action:hover { background: var(--surface-2); border-color: var(--border-md); }
+[data-theme="dark"] .prof-footer { border-top-color: var(--border); }
+
+/* Sheets & dialogs */
+[data-theme="dark"] .sheet, [data-theme="dark"] .up-modal, [data-theme="dark"] .fonte-modal { background: var(--surface); color: #fff; }
+[data-theme="dark"] .sheet input, [data-theme="dark"] .sheet textarea, [data-theme="dark"] .up-modal input, [data-theme="dark"] .up-modal textarea { background: var(--surface-2); color: #fff; border-color: var(--border); }
+
+/* ═══════════════════════════════════════════════════════════════
+   GLOBAL BUTTON POLISH (Task #8) — targets key button classes
+   ═══════════════════════════════════════════════════════════════ */
+.btn-primary, .btn-secondary, .prof-action, .hv3-ripasso-btn, .hv3-nuovo-btn {
+  border-radius: 14px;
+  transition: transform .15s ease, box-shadow .15s ease, background-color .15s ease, border-color .15s ease, opacity .15s ease;
+}
+.btn-primary:hover:not(:disabled),
+.btn-secondary:hover:not(:disabled),
+.prof-action:hover:not(:disabled),
+.hv3-ripasso-btn:hover:not(:disabled),
+.hv3-nuovo-btn:hover:not(:disabled) {
+  transform: scale(1.02);
+  box-shadow: 0 4px 14px rgba(0,0,0,.08);
+}
+[data-theme="dark"] .btn-primary:hover:not(:disabled),
+[data-theme="dark"] .btn-secondary:hover:not(:disabled),
+[data-theme="dark"] .prof-action:hover:not(:disabled),
+[data-theme="dark"] .hv3-ripasso-btn:hover:not(:disabled),
+[data-theme="dark"] .hv3-nuovo-btn:hover:not(:disabled) {
+  box-shadow: 0 4px 14px rgba(0,0,0,.35);
+}
+.btn-primary:active:not(:disabled),
+.btn-secondary:active:not(:disabled),
+.prof-action:active:not(:disabled) { transform: scale(.98); }
+
+/* ═══════════════════════════════════════════════════════════════
+   FAB MENU (Task #5)
+   ═══════════════════════════════════════════════════════════════ */
+.fab-menu-ov {
+  position: fixed; inset: 0; z-index: 90;
+  background: rgba(0,0,0,.25);
+  display: flex; align-items: flex-end; justify-content: flex-end;
+  padding: 0 24px calc(90px + env(safe-area-inset-bottom, 0)) 24px;
+  animation: fadeIn .15s ease;
+}
+.fab-menu {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 14px; padding: 6px;
+  display: flex; flex-direction: column; gap: 2px;
+  min-width: 220px; box-shadow: 0 8px 32px rgba(0,0,0,.18);
+  animation: popIn .18s ease;
+}
+.fab-menu-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px; border-radius: 10px;
+  border: none; background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 14px; font-weight: 500;
+  color: var(--ink); text-align: left;
+  transition: background .12s;
+}
+.fab-menu-item:hover { background: var(--surface-2); }
+.fab-menu-icon { font-size: 18px; line-height: 1; flex-shrink: 0; }
+
+/* ═══════════════════════════════════════════════════════════════
+   LAB RESIZE (Task #7) — Quiz 2x + Dizionario inline-always
+   ═══════════════════════════════════════════════════════════════ */
+.av3-tool-wide.av3-tool-xl {
+  padding: 22px 18px;
+  border-radius: 16px;
+  min-height: 72px;
+}
+.av3-tool-wide.av3-tool-xl .av3-tool-icon { font-size: 34px; }
+.av3-tool-wide.av3-tool-xl .av3-tool-name { font-size: 17px; font-weight: 700; }
+.av3-tool-wide.av3-tool-xl .av3-tool-desc { font-size: 12px; }
+
+.av3-diz-card {
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--surface);
+  padding: 14px; display: flex; flex-direction: column; gap: 10px;
+  cursor: default;
+}
+.av3-diz-card .av3-diz-title {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 600; color: var(--ink);
+}
+[data-theme="dark"] .av3-diz-card { background: var(--surface); border-color: var(--border); }

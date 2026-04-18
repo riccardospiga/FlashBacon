@@ -873,17 +873,10 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
     if(rFreqType==='C'){const d=rCustomDays.length?rCustomDays:['lun'];return 'custom:'+d.join(',')}
     return 'giornaliero'
   }
-  async function openRipassoQuizFromTable(r){
-    // STRICT: load from Supabase by ripasso_id, render inline, zero navigation.
-    const{data:qRow,error}=await supabase.from('ripassi_quiz').select('*').eq('ripasso_id',r.id).order('created_at',{ascending:false}).limit(1).maybeSingle()
-    if(error){toast('⚠️ Errore caricamento quiz: '+error.message);return}
-    if(!qRow||!Array.isArray(qRow.domande)||!qRow.domande.length){toast('Quiz non ancora pronto per questo ripasso');return}
-    setRipassiQuiz(p=>({...p,[r.id]:qRow}))
+  function applyRipassoQuiz(r,qRow){
     const raw=qRow.modalita||r.quiz_modalita||'multipla'
     const mode=raw==='flashcard'?'flashcard':raw==='multipla'?'multipla':'aperta'
     const domande=qRow.domande
-    // Ensure no other overlay/form/fullpage is visible.
-    setFullpage(null);setRShowForm(false);setREditId(null)
     if(mode==='flashcard'){
       setFcCards(domande);setFcIdx(0);setFcFlipped(false)
       setQuizData([]);setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([])
@@ -897,7 +890,38 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
       setQuizIdx(0);setQuizAnswered(false);setQuizScore(0);setQuizWrong([])
       setFcCards([]);setFcIdx(0);setFcFlipped(false)
     }
-    setRRunning({ripasso:r,mode,domande})
+    setRRunning({ripasso:r,mode,domande,loading:false})
+  }
+
+  async function openRipassoQuizFromTable(r){
+    // STRICT: render inline in Ripasso screen, zero navigation to Lab.
+    setFullpage(null);setRShowForm(false);setREditId(null)
+    const{data:qRow,error}=await supabase.from('ripassi_quiz').select('*').eq('ripasso_id',r.id).order('created_at',{ascending:false}).limit(1).maybeSingle()
+    if(error){toast('⚠️ Errore caricamento quiz: '+error.message);return}
+    // Cached quiz exists → show immediately.
+    if(qRow&&Array.isArray(qRow.domande)&&qRow.domande.length){
+      setRipassiQuiz(p=>({...p,[r.id]:qRow}))
+      applyRipassoQuiz(r,qRow)
+      return
+    }
+    // No cached quiz → show inline "Generazione in corso…" and generate.
+    setRRunning({ripasso:r,mode:r.quiz_modalita||'multipla',domande:[],loading:true})
+    setRipassiGeneratingId(r.id);setRipassiGenerating(true)
+    try{
+      await generateRipassoAndSaveToTable(r)
+      const{data:fresh,error:e2}=await supabase.from('ripassi_quiz').select('*').eq('ripasso_id',r.id).order('created_at',{ascending:false}).limit(1).maybeSingle()
+      if(e2)throw new Error(e2.message)
+      if(!fresh||!Array.isArray(fresh.domande)||!fresh.domande.length){
+        throw new Error('generazione fallita')
+      }
+      setRipassiQuiz(p=>({...p,[r.id]:fresh}))
+      applyRipassoQuiz(r,fresh)
+    }catch(e){
+      toast('⚠️ '+(e.message||'errore generazione'))
+      setRRunning(null)
+    }finally{
+      setRipassiGenerating(false);setRipassiGeneratingId(null)
+    }
   }
   function closeRipassoRunner(){
     setRRunning(null)
@@ -1741,7 +1765,15 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
               <button className="rip-close-btn" onClick={closeRipassoRunner} title="Chiudi">✕</button>
             </div>
 
-            {rRunning.mode==='multipla'&&(
+            {rRunning.loading&&(
+              <div className="rip-runner-loading">
+                <Spinner/>
+                <div className="rip-runner-loading-title">Generazione in corso…</div>
+                <div className="rip-runner-loading-sub">L'AI sta creando il quiz dalle tue fonti. Può richiedere qualche secondo.</div>
+              </div>
+            )}
+
+            {!rRunning.loading&&rRunning.mode==='multipla'&&(
               quizIdx>=quizData.length?(
                 <div className="quiz-score">
                   <div className="quiz-score-circle">{quizScore}/{quizData.length}</div>
@@ -1774,7 +1806,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
               )
             )}
 
-            {rRunning.mode==='aperta'&&quizData&&quizData.length>0&&(
+            {!rRunning.loading&&rRunning.mode==='aperta'&&quizData&&quizData.length>0&&(
               quizApertaIdx>=quizData.length?(
                 <div className="quiz-score">
                   <div className="quiz-score-circle" style={{fontSize:'1.2rem'}}>✓</div>
@@ -1818,7 +1850,7 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
               )
             )}
 
-            {rRunning.mode==='flashcard'&&fcCards.length>0&&(
+            {!rRunning.loading&&rRunning.mode==='flashcard'&&fcCards.length>0&&(
               <div className="fc-wrap-fit">
                 <div className="fc-progress">{fcCards.map((_,i)=><div key={i} className={`fc-dot ${i<=fcIdx?'seen':''}`}/>)}</div>
                 <div className="fc-scene" onClick={()=>setFcFlipped(f=>!f)} style={{flex:1,display:'flex',flexDirection:'column'}}>

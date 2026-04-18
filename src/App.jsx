@@ -1199,7 +1199,7 @@ useEffect(()=>{try{document.documentElement.setAttribute('data-theme',theme);loc
 
   /* ══════ COMPUTED ══════ */
   const curMateria=useMemo(()=>materie.find(m=>m.id===curMateriaId),[materie,curMateriaId])
-  const argomentiCorrenti=useMemo(()=>argomentiCorrenti,[argomenti,curMateriaId])
+  const argomentiCorrenti=useMemo(()=>argomenti.filter(a=>a.materia_id===curMateriaId),[argomenti,curMateriaId])
   const curArgomento=argomenti.find(a=>a.id===curArgId)
   const activeProvider=providers.find(p=>p.attivo)
   const argFonti=fonti.filter(f=>f.argomento_id===curArgId||f.argomento_id==null)
@@ -2554,7 +2554,3 @@ function QuizQ({q,idx,total,onNext,onCorrect,onWrong}){
     </div>
   )
 }
-
-
-/ /   r e d e p l o y  
- 

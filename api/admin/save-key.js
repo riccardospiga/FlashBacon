@@ -4,7 +4,11 @@ const crypto = require('crypto')
 
 const ALGO   = 'aes-256-gcm'
 const SECRET = Buffer.from(process.env.ENCRYPTION_SECRET, 'hex')
-const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.VITE_SUPABASE_ANON_KEY)
+// Server-only route: usa service role key se disponibile (bypassa RLS), altrimenti fallback anon.
+const supabase = createClient(
+  process.env.VITE_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+)
 
 function encrypt(text) {
   const iv     = crypto.randomBytes(12)
@@ -74,7 +78,26 @@ module.exports = async function handler(req, res) {
     }).select('id,provider,nome_display,modello,attivo').single()
 
     if (error) throw new Error(error.message)
-    res.status(200).json({ success: true, provider: data })
+
+    // Imposta il nuovo provider come attivo e disattiva tutti gli altri.
+    // Prima disattivo gli altri, poi attivo quello appena creato (stessa logica di set-active.js).
+    const { error: deactErr } = await supabase.from('ai_providers')
+      .update({ attivo: false, updated_at: new Date().toISOString() })
+      .neq('id', data.id)
+    if (deactErr) console.warn('[save-key] deactivate others:', deactErr.message)
+
+    const { data: activated, error: actErr } = await supabase.from('ai_providers')
+      .update({ attivo: true, updated_at: new Date().toISOString() })
+      .eq('id', data.id)
+      .select('id,provider,nome_display,modello,attivo')
+      .single()
+    if (actErr) {
+      console.error('[save-key] activate new:', actErr.message)
+      // Non bloccare: il provider è stato comunque salvato
+      return res.status(200).json({ success: true, provider: data, activation_error: actErr.message })
+    }
+
+    res.status(200).json({ success: true, provider: activated })
   } catch(e) {
     console.error('[save-key]', e.message)
     res.status(500).json({ error: e.message })

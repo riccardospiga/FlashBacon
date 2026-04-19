@@ -1,6 +1,10 @@
 // api/admin/set-active.js (CommonJS)
 const { createClient } = require('@supabase/supabase-js')
-const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.VITE_SUPABASE_ANON_KEY)
+// Server-only route: usa service role key se disponibile (bypassa RLS), altrimenti fallback anon.
+const supabase = createClient(
+  process.env.VITE_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY
+)
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })

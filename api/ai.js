@@ -388,12 +388,20 @@ module.exports = async function handler(req, res) {
     res.end()
 
   } catch(e) {
-    console.error('[ai.js] ERRORE COMPLETO:', e)
-    console.error('[ai.js] stack:', e.stack)
+    // Log dettagliato — visibile nei log Vercel per diagnosi quiz/ripasso
+    console.error('╔══════════ [ai.js] ERRORE CATCH ══════════')
+    console.error('║ message:', e.message)
+    console.error('║ name:',    e.name)
+    console.error('║ code:',    e.code)
+    console.error('║ cause:',   e.cause)
+    console.error('║ body:',    e.body)
+    console.error('║ stack:\n', e.stack)
+    console.error('╚══════════════════════════════════════════')
+    const detail = [e.name, e.message, e.code].filter(Boolean).join(' | ')
     if (res.headersSent) {
-      try { res.write(`data: ${JSON.stringify({ error: e.message, done: true })}\n\n`); res.end() } catch {}
+      try { res.write(`data: ${JSON.stringify({ error: detail, done: true })}\n\n`); res.end() } catch {}
     } else {
-      res.status(500).json({ error: e.message })
+      res.status(500).json({ error: detail, stack: e.stack?.split('\n').slice(0,6).join('\n') })
     }
   }
 }

@@ -1037,7 +1037,12 @@ useEffect(()=>{try{
         finalPrompt=r.prompt_personalizzato?basePrompt+`\n\nFocus: ${r.prompt_personalizzato}`:basePrompt
       }
       const res=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:finalPrompt,images,textSources,urlSources,settings:{length:2},systemContext,fileNames,userEmail:utente?.email||''})})
-      if(!res.ok){const e=await res.json().catch(()=>({}));throw new Error(e.error||`AI ${res.status}`)}
+      if(!res.ok){
+        const txt=await res.text().catch(()=>'')
+        let parsed={}; try{parsed=JSON.parse(txt)}catch{}
+        console.error('[Quiz Ripasso] /api/ai HTTP',res.status,'body:',txt)
+        throw new Error(parsed.error||`AI ${res.status}: ${txt.slice(0,200)}`)
+      }
       const quizResult=await readAIStream(res,null)
       const parsed=mode==='flashcard'?parseFC(quizResult):mode==='multipla'?parseQuiz(quizResult):parseOpenQuiz(quizResult)
       if(!Array.isArray(parsed)||!parsed.length)throw new Error('parsing risposta AI fallito')
@@ -1052,7 +1057,16 @@ useEffect(()=>{try{
         setRipassiQuiz(p=>({...p,[r.id]:{...qRow,domande:dom}}))
       }
       showAIDone(mode==='flashcard'?'Flashcard ripasso pronte!':'Quiz ripasso pronto!')
-    }catch(e){console.warn('generateRipassoAndSaveToTable:',e.message);toast('⚠️ Quiz: '+e.message);throw e}
+    }catch(e){
+      console.error('╔══════════ [Quiz Ripasso] ERRORE ══════════')
+      console.error('║ message:',e.message)
+      console.error('║ name:',e.name)
+      console.error('║ stack:\n',e.stack)
+      console.error('║ ripasso:',JSON.stringify({id:r.id,nome:r.nome,mat:r.materia_id,arg:r.argomento_id}))
+      console.error('╚══════════════════════════════════════════')
+      toast('⚠️ Quiz: '+e.message)
+      throw e
+    }
   }
 
   async function generateRipassoAndSave(r){
@@ -1438,12 +1452,16 @@ useEffect(()=>{try{
                   <div className="av3-fonte-thumb">{isImg?<img src={f.url} alt={f.nome}/>:<span>{icon}</span>}</div>
                   <div className="av3-fonte-info">
                     <div className="av3-fonte-name">{f.nome}</div>
-                    <div className="av3-fonte-sub">{
-                      f.tipo==='text'?'Testo':
-                      f.tipo==='youtube'?'YouTube':
-                      f.tipo==='url'?'Link':
-                      (ext?ext.toUpperCase():(f.tipo||'FILE').toUpperCase())
-                    }</div>
+                    <div className="av3-fonte-sub">{(()=>{
+                      // Solo l'estensione/tipo — MAI il nome
+                      if(f.tipo==='text')return 'TXT'
+                      if(f.tipo==='youtube')return 'YT'
+                      if(f.tipo==='url')return 'URL'
+                      // Per file: estensione dal nome → fallback estensione dall'URL → fallback f.tipo
+                      const fromName=(f.nome||'').includes('.')?f.nome.split('.').pop():''
+                      const fromUrl=(f.url||'').split('?')[0].includes('.')?f.url.split('?')[0].split('.').pop():''
+                      return (fromName||fromUrl||f.tipo||'FILE').toUpperCase().slice(0,5)
+                    })()}</div>
                   </div>
                   <button className="av3-fonte-btn" title="Rinomina" onClick={e=>{e.stopPropagation();setSheetRename(f);setRenameVal(f.nome)}}>
                     <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>

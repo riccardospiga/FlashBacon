@@ -692,8 +692,6 @@ body {
   font-weight: 600; letter-spacing: .5px; text-transform: uppercase;
   background: var(--surface-3); padding: 2px 6px; border-radius: 4px;
 }
-html.dark .av3-fonte-name { color: #fff; }
-html.dark .av3-fonte-sub { color: #c0c0d0; background: var(--surface-3); }
 .av3-fonte-btn {
   background: none; border: none; cursor: pointer; color: #bbb;
   padding: 5px; border-radius: 6px; display: flex; align-items: center;
@@ -3395,76 +3393,12 @@ html.dark .av3-fonte-sub { color: #c0c0d0; background: var(--surface-3); }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   DARK THEME (Task #4) — applies via html.dark on <html>
+   DARK MODE (inverted filter — classe html.dark)
    ═══════════════════════════════════════════════════════════════ */
-html.dark {
-  --bg:          #1C1C2E;
-  --surface:     #252535;
-  --surface-2:   #2E2E45;
-  --surface-3:   #363651;
-  --elevated:    #2E2E45;
-  --ink:         #FFFFFF;
-  --muted:       #A0A0B8;
-  --border:      #3A3A52;
-  --border-md:   #4A4A65;
-  --border-str:  #5A5A75;
-  --gray:        #252535;
-  --gray2:       rgba(255,255,255,.06);
-  --dark-bg:     #252535;
-}
-html.dark body { background: #1C1C2E; color: #FFFFFF; }
-html.dark .screen { background: var(--bg); }
-html.dark .screen.home-screen-v3 { background: #1C1C2E; }
-
-/* Override hardcoded whites/grays in hv3 */
-html.dark .hv3-card,
-html.dark .hv3-ripasso-btn,
-html.dark .hv3-arg-card {
-  background: var(--surface); border-color: var(--border);
-}
-html.dark .hv3-card:hover,
-html.dark .hv3-arg-card:hover { border-color: var(--border-md); }
-html.dark .hv3-ripasso-btn { color: #fff; border-color: var(--border-md); }
-html.dark .hv3-ripasso-btn:hover { border-color: var(--border-str); }
-html.dark .hv3-card-name,
-html.dark .hv3-arg-name,
-html.dark .hv3-right-title { color: #fff; }
-html.dark .hv3-card.active,
-html.dark .hv3-card.sel { background: rgba(212,105,42,.12); border-color: var(--accent); }
-html.dark .hv3-arg-card.sel { background: rgba(212,105,42,.12); border-color: var(--accent); }
-html.dark .hv3-right-header { border-bottom-color: var(--border); }
-html.dark .hv3-right-empty,
-html.dark .hv3-arg-arrow,
-html.dark .hv3-empty { color: var(--muted); }
-
-/* Argomento view av3 */
-html.dark .av3-tool-wide,
-html.dark .av3-tool,
-html.dark .av3-storico-row,
-html.dark .av3-diz { background: var(--surface); border-color: var(--border); }
-html.dark .av3-tool-wide:hover,
-html.dark .av3-tool:hover,
-html.dark .av3-storico-row:hover { border-color: var(--border-md); }
-html.dark .av3-tool-name { color: #fff; }
-html.dark .av3-tool-desc,
-html.dark .av3-storico-label,
-html.dark .av3-storico-date { color: var(--muted); }
-html.dark .av3-storico-preview { color: #e0e0e8; }
-html.dark .av3-diz-input { background: var(--surface-2); border-color: var(--border); color: #fff; }
-html.dark .av3-diz-input:focus { background: var(--surface-3); border-color: var(--accent); }
-html.dark .av3-tabbar { background: var(--surface); border-top-color: var(--border); }
-html.dark .av3-tab-btn { color: var(--muted); }
-html.dark .av3-tab-btn.active { color: var(--accent); }
-html.dark .av3-section-label { color: var(--muted); }
-
-/* Profile */
-html.dark .prof-action { background: var(--surface); border-color: var(--border); color: #fff; }
-html.dark .prof-action:hover { background: var(--surface-2); border-color: var(--border-md); }
-html.dark .prof-footer { border-top-color: var(--border); }
-
-/* Sheets & dialogs */
-html.dark .sheet, html.dark .up-modal, html.dark .fonte-modal { background: var(--surface); color: #fff; }
-html.dark .sheet input, html.dark .sheet textarea, html.dark .up-modal input, html.dark .up-modal textarea { background: var(--surface-2); color: #fff; border-color: var(--border); }
+html.dark { filter: invert(1) hue-rotate(180deg); background: #fff; }
+html.dark img, html.dark video, html.dark .hv3-card[style*="background-image"] { filter: invert(1) hue-rotate(180deg); }
+/* Elementi che NON devono essere invertiti (anteprime, immagini inline di sfondo) */
+html.dark .mat-img-preview, html.dark .mat-img-opt, html.dark .av3-fonte-thumb img { filter: invert(1) hue-rotate(180deg); }
 
 /* ═══════════════════════════════════════════════════════════════
    GLOBAL BUTTON POLISH (Task #8) — targets key button classes

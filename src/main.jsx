@@ -14,7 +14,8 @@ if ('serviceWorker' in navigator) {
 // Apply persisted theme as early as possible to avoid flash.
 try {
   const t = localStorage.getItem('fb_theme') || 'light'
-  document.documentElement.setAttribute('data-theme', t)
+  if (t === 'dark') document.documentElement.classList.add('dark')
+  else document.documentElement.classList.remove('dark')
 } catch {}
 
 ReactDOM.createRoot(document.getElementById('root')).render(

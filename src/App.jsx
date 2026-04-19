@@ -174,7 +174,11 @@ const [showQuizPicker,setShowQuizPicker]=useState(false)
 const [showFabMenu,setShowFabMenu]=useState(false)
 const [sheetMatSimple,setSheetMatSimple]=useState(false)
 const [theme,setTheme]=useState(()=>{try{return localStorage.getItem('fb_theme')||'light'}catch{return 'light'}})
-useEffect(()=>{try{document.documentElement.setAttribute('data-theme',theme);localStorage.setItem('fb_theme',theme)}catch{}},[theme])
+useEffect(()=>{try{
+  const el=document.documentElement
+  if(theme==='dark')el.classList.add('dark');else el.classList.remove('dark')
+  localStorage.setItem('fb_theme',theme)
+}catch{}},[theme])
   const [utente,setUtente]=useState(null)
   const [materie,setMaterie]=useState([])
   const [argomenti,setArgomenti]=useState([])
@@ -1434,7 +1438,12 @@ useEffect(()=>{try{document.documentElement.setAttribute('data-theme',theme);loc
                   <div className="av3-fonte-thumb">{isImg?<img src={f.url} alt={f.nome}/>:<span>{icon}</span>}</div>
                   <div className="av3-fonte-info">
                     <div className="av3-fonte-name">{f.nome}</div>
-                    <div className="av3-fonte-sub">{f.tipo==='text'?'Testo':f.tipo==='url'?'Link':ext.toUpperCase()}</div>
+                    <div className="av3-fonte-sub">{
+                      f.tipo==='text'?'Testo':
+                      f.tipo==='youtube'?'YouTube':
+                      f.tipo==='url'?'Link':
+                      (ext?ext.toUpperCase():(f.tipo||'FILE').toUpperCase())
+                    }</div>
                   </div>
                   <button className="av3-fonte-btn" title="Rinomina" onClick={e=>{e.stopPropagation();setSheetRename(f);setRenameVal(f.nome)}}>
                     <svg width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -1497,24 +1506,24 @@ useEffect(()=>{try{document.documentElement.setAttribute('data-theme',theme);loc
             )}
             {aiBlocked&&<div className="av3-warn av3-warn-err">🚫 Limite token raggiunto.</div>}
 
-            {/* Quiz wide — 2x size (Task #7) */}
-            <div className={`av3-tool-wide av3-tool-xl${aiBlocked?' av3-disabled':''}`} onClick={()=>!aiBlocked&&setShowQuizPicker(true)}>
-              <span className="av3-tool-icon">❓</span>
-              <div className="av3-tool-info"><div className="av3-tool-name">Quiz</div><div className="av3-tool-desc">Multipla · Aperta</div></div>
-              <button className="av3-tool-cfg" onClick={e=>{e.stopPropagation();!aiBlocked&&openToolCfg('quiz')}}>✏️</button>
-            </div>
-
-            {/* Grid tools (Dizionario escluso — card dedicata sotto) */}
+            {/* Tools — griglia uniforme 2 colonne: tutte le card hanno stessa dimensione */}
             <div className="av3-tools-grid">
               {[
+                {key:'quiz',icon:'❓',name:'Quiz',desc:'Multipla · Aperta'},
                 {key:'riassunto',icon:'📝',name:'Riassunto',desc:'Sintesi'},
                 {key:'flashcards',icon:'🃏',name:'Flash Cards',desc:'Flip 3D'},
                 {key:'mappa',icon:'🗺️',name:'Mappa',desc:'Visuale'},
                 {key:'punti',icon:'🎯',name:'Punti chiave',desc:'Concetti'},
+                {key:'dizionario',icon:'📖',name:'Dizionario',desc:curMateria?.lingua||'Sinonimi'},
               ].map(t=>(
                 <div key={t.key} className={`av3-tool${aiBlocked?' av3-disabled':''}`}
-                  onClick={()=>{if(!aiBlocked)runTool(t.key,outputCfg,false)}}>
-                  <button className="av3-tool-cfg" onClick={e=>{e.stopPropagation();!aiBlocked&&openToolCfg(t.key)}}>✏️</button>
+                  onClick={()=>{
+                    if(aiBlocked)return
+                    if(t.key==='quiz'){setShowQuizPicker(true);return}
+                    if(t.key==='dizionario'){setLabInline(p=>p?.key==='dizionario'?null:{key:'dizionario',loading:false,data:null});return}
+                    runTool(t.key,outputCfg,false)
+                  }}>
+                  <button className="av3-tool-cfg" onClick={e=>{e.stopPropagation();!aiBlocked&&t.key!=='dizionario'&&openToolCfg(t.key==='quiz'?'quiz':t.key)}}>✏️</button>
                   <span className="av3-tool-icon">{t.icon}</span>
                   <div className="av3-tool-name">{t.name}</div>
                   <div className="av3-tool-desc">{t.desc}</div>
@@ -1522,27 +1531,27 @@ useEffect(()=>{try{document.documentElement.setAttribute('data-theme',theme);loc
               ))}
             </div>
 
-            {/* Dizionario — card normale con input inline sempre visibile (Task #7) */}
-            <div className="av3-diz-card">
-              <div className="av3-diz-title"><span>📖</span><span>Dizionario</span><span style={{color:'var(--muted)',fontWeight:400,fontSize:11,marginLeft:'auto'}}>{curMateria?.lingua||'Sinonimi'}</span></div>
-              <div className="av3-diz-row">
-                <input className="av3-diz-input" value={labDizQuery} onChange={e=>setLabDizQuery(e.target.value)}
-                  placeholder="Inserisci una parola…" disabled={aiBlocked}
-                  onKeyDown={e=>e.key==='Enter'&&!aiBlocked&&runDizionario(labDizQuery)}/>
-                <button className="av3-send-btn" onClick={()=>runDizionario(labDizQuery)} disabled={aiBlocked||labInline?.loading||!labDizQuery.trim()}>
-                  {labInline?.loading?<Spinner/>:<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>}
-                </button>
-              </div>
-              {labInline?.key==='dizionario'&&labInline.data&&!labInline.loading&&(
-                labInline.data.error?<div style={{color:'#f87171',fontSize:'.82rem'}}>{labInline.data.error}</div>:
-                labInline.data.raw?<pre style={{fontSize:'.78rem',color:'var(--muted)',whiteSpace:'pre-wrap'}}>{labInline.data.raw}</pre>:
-                <div className="lab-diz-result">
-                  {labInline.data.significati?.length>0&&<div className="lab-diz-section"><div className="lab-diz-label">Significati</div>{labInline.data.significati.map((s,i)=><div key={i} className="lab-diz-item">{s}</div>)}</div>}
-                  {labInline.data.sinonimi?.length>0&&<div className="lab-diz-section"><div className="lab-diz-label">Sinonimi</div><div style={{display:'flex',flexWrap:'wrap',gap:4}}>{labInline.data.sinonimi.map((s,i)=><span key={i} className="lab-diz-chip">{s}</span>)}</div></div>}
-                  {labInline.data.traduzioni&&<div className="lab-diz-section"><div className="lab-diz-label">Traduzioni</div><div className="lab-diz-traduzioni">{Object.entries(labInline.data.traduzioni).map(([lang,val])=><div key={lang} className="lab-diz-trad"><span className="lab-diz-lang">{lang.toUpperCase()}</span><span>{val}</span></div>)}</div></div>}
+            {labInline?.key==='dizionario'&&(
+              <div className="av3-diz">
+                <div className="av3-diz-row">
+                  <input className="av3-diz-input" value={labDizQuery} onChange={e=>setLabDizQuery(e.target.value)}
+                    placeholder="Inserisci una parola…" autoFocus
+                    onKeyDown={e=>e.key==='Enter'&&runDizionario(labDizQuery)}/>
+                  <button className="av3-send-btn" onClick={()=>runDizionario(labDizQuery)} disabled={labInline.loading||!labDizQuery.trim()}>
+                    {labInline.loading?<Spinner/>:<svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4z"/></svg>}
+                  </button>
                 </div>
-              )}
-            </div>
+                {labInline.data&&!labInline.loading&&(
+                  labInline.data.error?<div style={{color:'#f87171',fontSize:'.82rem'}}>{labInline.data.error}</div>:
+                  labInline.data.raw?<pre style={{fontSize:'.78rem',color:'var(--muted)',whiteSpace:'pre-wrap'}}>{labInline.data.raw}</pre>:
+                  <div className="lab-diz-result">
+                    {labInline.data.significati?.length>0&&<div className="lab-diz-section"><div className="lab-diz-label">Significati</div>{labInline.data.significati.map((s,i)=><div key={i} className="lab-diz-item">{s}</div>)}</div>}
+                    {labInline.data.sinonimi?.length>0&&<div className="lab-diz-section"><div className="lab-diz-label">Sinonimi</div><div style={{display:'flex',flexWrap:'wrap',gap:4}}>{labInline.data.sinonimi.map((s,i)=><span key={i} className="lab-diz-chip">{s}</span>)}</div></div>}
+                    {labInline.data.traduzioni&&<div className="lab-diz-section"><div className="lab-diz-label">Traduzioni</div><div className="lab-diz-traduzioni">{Object.entries(labInline.data.traduzioni).map(([lang,val])=><div key={lang} className="lab-diz-trad"><span className="lab-diz-lang">{lang.toUpperCase()}</span><span>{val}</span></div>)}</div></div>}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="av3-section-label">Generati</div>
             {selStorico.size>0&&<div className="sel-bar" style={{marginBottom:8}}><span>{selStorico.size} selezionati</span><button className="btn-sm danger" onClick={deleteStoricoSel}>Elimina</button></div>}

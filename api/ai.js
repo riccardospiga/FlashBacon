@@ -3,8 +3,25 @@ const { createClient } = require('@supabase/supabase-js')
 const crypto = require('crypto')
 
 const ALGO   = 'aes-256-gcm'
-const SECRET = Buffer.from(process.env.ENCRYPTION_SECRET, 'hex')
+const SECRET = process.env.ENCRYPTION_SECRET ? Buffer.from(process.env.ENCRYPTION_SECRET, 'hex') : null
 const supabase = createClient(process.env.VITE_SUPABASE_URL, process.env.VITE_SUPABASE_ANON_KEY)
+
+function assertEnv() {
+  const missing = []
+  if (!process.env.ENCRYPTION_SECRET) missing.push('ENCRYPTION_SECRET')
+  if (!process.env.VITE_SUPABASE_URL) missing.push('VITE_SUPABASE_URL')
+  if (!process.env.VITE_SUPABASE_ANON_KEY) missing.push('VITE_SUPABASE_ANON_KEY')
+  if (missing.length) throw new Error(`Variabili env mancanti: ${missing.join(', ')}`)
+}
+
+// Legge il body di una risposta provider non-ok in modo robusto (JSON o testo).
+async function readErrBody(response) {
+  try {
+    const t = await response.text()
+    try { const j = JSON.parse(t); return j.error?.message || j.message || t.slice(0, 500) }
+    catch { return t.slice(0, 500) }
+  } catch { return `HTTP ${response.status}` }
+}
 
 const TOKEN_LIMITS = { owner: 150000, beta: 10000 }
 
@@ -104,7 +121,7 @@ async function streamAnthropic(apiKey, model, prompt, imageUrls, systemPrompt, m
     headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
     body: JSON.stringify({ model, max_tokens: maxTokens, system: systemPrompt, messages: [{ role: 'user', content }], stream: true })
   })
-  if (!response.ok) { const d = await response.json(); throw new Error(d.error?.message || 'Anthropic error') }
+  if (!response.ok) { const msg = await readErrBody(response); console.error('[anthropic]', response.status, msg); throw new Error(`Anthropic ${response.status}: ${msg}`) }
 
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
@@ -142,7 +159,7 @@ async function streamOpenAI(apiKey, model, prompt, imageUrls, systemPrompt, maxT
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
     body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content }], stream: true, stream_options: { include_usage: true } })
   })
-  if (!response.ok) { const d = await response.json(); throw new Error(d.error?.message || 'OpenAI error') }
+  if (!response.ok) { const msg = await readErrBody(response); console.error('[openai]', response.status, msg); throw new Error(`OpenAI ${response.status}: ${msg}`) }
   return readOpenAIStream(response, res)
 }
 
@@ -231,7 +248,7 @@ async function streamDeepSeek(apiKey, model, prompt, systemPrompt, maxTokens, re
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
     body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: 'system', content: systemPrompt }, { role: 'user', content: prompt }], stream: true })
   })
-  if (!response.ok) { const d = await response.json(); throw new Error(d.error?.message || 'DeepSeek error') }
+  if (!response.ok) { const msg = await readErrBody(response); console.error('[deepseek]', response.status, msg); throw new Error(`DeepSeek ${response.status}: ${msg}`) }
   return readOpenAIStream(response, res)
 }
 
@@ -277,6 +294,7 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' })
 
   try {
+    assertEnv()
     // Guard: body parsing fallisce silenziosamente se troppo grande o Content-Type errato
     if (!req.body || typeof req.body !== 'object') {
       console.error('[ai.js] req.body non disponibile:', typeof req.body)

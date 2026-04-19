@@ -12,7 +12,7 @@
   "crons": [
     {
       "path": "/api/cron/ripasso-notify",
-      "schedule": "0 * * * *"
+      "schedule": "0 9 * * *"
     }
   ]
 }

@@ -1013,6 +1013,7 @@ useEffect(()=>{try{
     if(!ripassoRow){toast('⚠️ Salvataggio ripasso fallito');return}
     // Pre-genera il quiz e salvalo su ripassi_quiz PRIMA di chiudere il form,
     // così al click successivo l'utente lo apre istantaneamente dalla cache.
+    const wasInsert=!rEditId
     registerPushSubscription(ripassoRow.id)
     setRipassiGeneratingId(ripassoRow.id)
     setRipassiGenerating(true)
@@ -1021,8 +1022,13 @@ useEffect(()=>{try{
       toast(rEditId?'Ripasso aggiornato ✓':'Ripasso pianificato ✓')
       setRShowForm(false);setREditId(null)
     }catch(e){
-      toast('⚠️ Quiz non generato: '+(e.message||'errore')+' — riprova')
-      // Form resta aperto così l'utente può ritentare senza perdere lo stato.
+      // Rollback: se era un nuovo ripasso, rimuovilo così non resta un ripasso-fantasma.
+      // In edit lascio com'è (il record originale esiste da prima, solo il quiz non è stato rigenerato).
+      if(wasInsert){
+        try{await supabase.from('studio_pianificato').delete().eq('id',ripassoRow.id)}catch{}
+        setRipassi(p=>p.filter(r=>r.id!==ripassoRow.id))
+      }
+      toast('⚠️ Quiz non generato: '+(e.message||'errore')+' — ripasso non creato, riprova')
     }finally{
       setRipassiGenerating(false);setRipassiGeneratingId(null)
     }

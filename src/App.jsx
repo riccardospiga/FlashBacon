@@ -944,6 +944,12 @@ useEffect(()=>{try{
   async function openRipassoQuizFromTable(r){
     // STRICT: render inline in Ripasso screen, zero navigation to Lab.
     setFullpage(null);setRShowForm(false);setREditId(null)
+    // Se c'è già una generazione in corso per questo ripasso (es. dal save),
+    // mostro solo lo stato di loading senza avviarne una seconda.
+    if(ripassiGeneratingId===r.id){
+      setRRunning({ripasso:r,mode:r.quiz_modalita||'multipla',domande:[],loading:true})
+      return
+    }
     try{
       const{data:qRow,error}=await supabase.from('ripassi_quiz').select('*').eq('ripasso_id',r.id).order('created_at',{ascending:false}).limit(1).maybeSingle()
       if(error)throw new Error(error.message)
@@ -993,28 +999,37 @@ useEffect(()=>{try{
     const argomentoId=rArgs.length===1?rArgs[0]:null
     const fields={nome:rNome||null,materia_id:rMat,argomento_id:argomentoId,frequenza:serializeFreq(),orario:rOrario,difficolta:2,quiz_num:rQNum,quiz_modalita:rQMode,prompt_personalizzato:rPrompt||null}
     let ripassoRow
-    if(rEditId){
-      const{data}=await supabase.from('studio_pianificato').update(fields).eq('id',rEditId).select().single()
-      ripassoRow=data;setRipassi(p=>p.map(r=>r.id===rEditId?data:r))
-    }else{
-      const{data}=await supabase.from('studio_pianificato').insert({...fields,utente_email:utente.email}).select().single()
-      ripassoRow=data;if(data)setRipassi(p=>[...p,data])
-    }
-    toast(rEditId?'Ripasso aggiornato ✓':'Ripasso pianificato ✓')
-    setRShowForm(false);setREditId(null)
-    if(ripassoRow){
-      // Register this device for push so the server-side cron can reach it.
-      registerPushSubscription(ripassoRow.id)
-      setRipassiGeneratingId(ripassoRow.id)
-      setRipassiGenerating(true)
-      try{await generateRipassoAndSaveToTable(ripassoRow)}
-      catch(e){console.warn('saveRipasso generate:',e.message)}
-      finally{setRipassiGenerating(false);setRipassiGeneratingId(null)}
+    try{
+      if(rEditId){
+        const{data,error}=await supabase.from('studio_pianificato').update(fields).eq('id',rEditId).select().single()
+        if(error)throw error
+        ripassoRow=data;setRipassi(p=>p.map(r=>r.id===rEditId?data:r))
+      }else{
+        const{data,error}=await supabase.from('studio_pianificato').insert({...fields,utente_email:utente.email}).select().single()
+        if(error)throw error
+        ripassoRow=data;if(data)setRipassi(p=>[...p,data])
+      }
+    }catch(e){toast('⚠️ Errore salvataggio: '+e.message);return}
+    if(!ripassoRow){toast('⚠️ Salvataggio ripasso fallito');return}
+    // Pre-genera il quiz e salvalo su ripassi_quiz PRIMA di chiudere il form,
+    // così al click successivo l'utente lo apre istantaneamente dalla cache.
+    registerPushSubscription(ripassoRow.id)
+    setRipassiGeneratingId(ripassoRow.id)
+    setRipassiGenerating(true)
+    try{
+      await generateRipassoAndSaveToTable(ripassoRow)
+      toast(rEditId?'Ripasso aggiornato ✓':'Ripasso pianificato ✓')
+      setRShowForm(false);setREditId(null)
+    }catch(e){
+      toast('⚠️ Quiz non generato: '+(e.message||'errore')+' — riprova')
+      // Form resta aperto così l'utente può ritentare senza perdere lo stato.
+    }finally{
+      setRipassiGenerating(false);setRipassiGeneratingId(null)
     }
   }
   async function generateRipassoAndSaveToTable(r){
     const argId=r.argomento_id||(argomenti.find(a=>a.materia_id===r.materia_id)?.id)
-    if(!argId)return
+    if(!argId)throw new Error('Nessun argomento disponibile per questa materia — creane uno prima')
     try{
       const q=supabase.from('fonti').select('*').or(`argomento_id.eq.${argId},and(argomento_id.is.null,materia_id.eq.${r.materia_id})`)
       const{data:rFonti}=await q.order('created_at')

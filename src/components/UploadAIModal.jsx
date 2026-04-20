@@ -456,8 +456,6 @@ Rispondi SOLO con il JSON richiesto.`
           nome: mat.nome,
           emoji: mat.emoji || '📚',
           cover_image: mat.cover_image || null,
-          dizionario: mat.dizionario ?? false,
-          lingua: mat.lingua || null,
         }).select().single()
         if (matErr || !newMat) {
           console.error('[confirmSave] materie insert:', matErr?.message, mat.nome)

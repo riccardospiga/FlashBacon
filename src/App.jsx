@@ -603,7 +603,7 @@ useEffect(()=>{try{
     // Se nessuna immagine selezionata, usa Pollinations.ai
     const coverImg=newMatCoverImg||pollinationsUrl(newMatNome.trim())
     try{
-      const{data,error}=await supabase.from('materie').insert({utente_email:utente.email,nome:newMatNome.trim(),emoji:newMatEmoji,cover_image:coverImg,dizionario:newMatDizionario}).select().single()
+      const{data,error}=await supabase.from('materie').insert({utente_email:utente.email,nome:newMatNome.trim(),emoji:newMatEmoji,cover_image:coverImg}).select().single()
       if(error)throw error
       setMaterie(p=>[...p,data]);toast('Materia creata ✓')
     }catch(e){toast('⚠️ '+(e.message||'Errore creazione materia'))}
@@ -613,7 +613,7 @@ useEffect(()=>{try{
     if(!newMatNome.trim())return
     const coverImg=pollinationsUrl(newMatNome.trim())
     try{
-      const{data,error}=await supabase.from('materie').insert({utente_email:utente.email,nome:newMatNome.trim(),emoji:newMatEmoji,cover_image:coverImg,dizionario:false,lingua:null}).select().single()
+      const{data,error}=await supabase.from('materie').insert({utente_email:utente.email,nome:newMatNome.trim(),emoji:newMatEmoji,cover_image:coverImg}).select().single()
       if(error)throw error
       setMaterie(p=>[...p,data]);toast('Materia creata ✓')
     }catch(e){toast('⚠️ '+(e.message||'Errore creazione materia'))}

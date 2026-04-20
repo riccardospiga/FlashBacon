@@ -452,7 +452,12 @@ Rispondi SOLO con il JSON richiesto.`
     try {
       for (const mat of (proposal.nuove || [])) {
         const { data: newMat, error: matErr } = await supabase.from('materie').insert({
-          utente_email: utente.email, nome: mat.nome, emoji: mat.emoji || '📚',
+          utente_email: utente.email,
+          nome: mat.nome,
+          emoji: mat.emoji || '📚',
+          cover_image: mat.cover_image || null,
+          dizionario: mat.dizionario ?? false,
+          lingua: mat.lingua || null,
         }).select().single()
         if (matErr || !newMat) {
           console.error('[confirmSave] materie insert:', matErr?.message, mat.nome)
